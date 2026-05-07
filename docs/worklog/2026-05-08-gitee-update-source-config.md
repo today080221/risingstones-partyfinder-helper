@@ -49,3 +49,22 @@
 - 根因：Release 已存在不等于客户端已配置国内镜像；客户端需要在构建时携带镜像仓库配置，Tauri 还需要运行时读取该配置。
 - 修复状态：`0.1.4` 已让 Tauri 桌面包写入并读取 `release-manifest.json` 的 `updateRepositories`。
 - 使用提醒：发布国内镜像包前，需要先带 `RISINGSTONES_UPDATE_GITEE_REPO` 重新构建，再上传新生成的 zip。
+
+## Release Result
+
+- 已提交 `修复国内镜像更新源配置`，并推送 `main` 到 GitHub 主仓库和国内镜像 remote。
+- 已推送 `v0.1.4` 标签到 GitHub 主仓库和国内镜像 remote。
+- GitHub Release workflow：通过。
+  - Run ID：`25515112690`
+  - Release URL：`https://github.com/today080221/risingstones-partyfinder-helper/releases/tag/v0.1.4`
+- GitHub CI：通过。
+  - Run ID：`25515078223`
+- GitHub Release 资产：
+  - `risingstones-partyfinder-helper-v0.1.4-desktop-win-x64-portable.zip`
+  - `risingstones-partyfinder-helper-v0.1.4-desktop-win-x64-portable.zip.sha256`
+  - `risingstones-partyfinder-helper-v0.1.4-win-x64.zip`
+  - `risingstones-partyfinder-helper-v0.1.4-win-x64.zip.sha256`
+- 发布物探针：
+  - 本机带发布环境变量构建的 `0.1.4` Node 与 Tauri 包均包含国内镜像配置。
+  - GitHub Actions 构建出的公开 GitHub Release 包不包含国内镜像配置，说明 GitHub 仓库 secret 当前未配置或为空；如果要让 GitHub Release 包也内置国内镜像，需要先配置 GitHub Secret 后重新发布。
+  - 若要只在国内镜像下载包内携带国内镜像地址，应使用本机带环境变量构建出的 zip 上传到国内镜像 Release。
