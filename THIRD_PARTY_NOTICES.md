@@ -16,11 +16,13 @@
 - `vitest`：单元测试。
 - `concurrently`：并行启动开发服务。
 - `esbuild`：发布包后端打包。
+- `postject`：为 Windows 便携版生成 Node.js SEA 启动 EXE。
+- `@tauri-apps/*`：Tauri 桌面客户端原型。
 - `@types/*`：TypeScript 类型声明。
 
 ## Windows 便携包运行时
 
-`npm run build:portable` 会尝试从 Node.js 官方发布地址下载 Windows x64 Node.js 运行时，并将 `node.exe` 和 Node.js 许可文件放入便携包。
+`npm run build:portable` 会尝试从 Node.js 官方发布地址下载 Windows x64 Node.js 运行时，并将基于 Node.js SEA 的 `RisingStones-PartyFinder.exe`、备用 `node.exe` 和 Node.js 许可文件放入便携包。
 
 如果官方下载失败，脚本会退回复制当前构建环境的 `node.exe`。公开发布前请确认发布包中的 `runtime/LICENSE-Node.js.txt` 存在；若不存在，应手动补充对应 Node.js 版本的许可文本后再发布。
 

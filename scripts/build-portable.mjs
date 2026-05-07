@@ -14,6 +14,7 @@ const stageDir = path.join(releaseDir, targetName);
 const zipPath = path.join(releaseDir, `${targetName}.zip`);
 const appDir = path.join(stageDir, "app");
 const runtimeDir = path.join(stageDir, "runtime");
+const exeName = "RisingStones-PartyFinder.exe";
 const nodeVersion = normalizeNodeVersion(process.env.PORTABLE_NODE_VERSION ?? process.version);
 const nodeRuntime = await prepareNodeRuntime(nodeVersion);
 const releaseConfig = await readReleaseConfig();
@@ -26,6 +27,7 @@ await fs.mkdir(runtimeDir, { recursive: true });
 await copyDir(path.join(rootDir, "dist"), path.join(appDir, "dist"));
 await fs.copyFile(path.join(rootDir, "build", "server.cjs"), path.join(appDir, "server.cjs"));
 await fs.copyFile(nodeRuntime.exePath, path.join(runtimeDir, "node.exe"));
+await createPortableExe(nodeRuntime.exePath, path.join(stageDir, exeName));
 
 if (nodeRuntime.licensePath) {
   await fs.copyFile(nodeRuntime.licensePath, path.join(runtimeDir, "LICENSE-Node.js.txt"));
@@ -198,12 +200,12 @@ function createLauncher() {
   return `@echo off
 setlocal
 if "%PORT%"=="" set PORT=8797
+if "%AUTO_OPEN_BROWSER%"=="" set AUTO_OPEN_BROWSER=true
 set SERVE_STATIC=true
 set STATIC_DIR=%~dp0app\\dist
 echo FF14 RisingStones Party Finder Helper
 echo Local URL: http://127.0.0.1:%PORT%
 echo Close this window to stop the local service.
-start "" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Sleep -Milliseconds 900; Start-Process ('http://127.0.0.1:' + $env:PORT)"
 "%~dp0runtime\\node.exe" "%~dp0app\\server.cjs"
 echo.
 echo Local service stopped.
@@ -216,9 +218,12 @@ function createPortableReadme() {
 
 使用方式：
 1. 解压整个 zip。
-2. 双击 start-windows.bat。
+2. 双击 RisingStones-PartyFinder.exe。
 3. 浏览器会打开 http://127.0.0.1:8797。
 4. 关闭命令行窗口即可停止本地服务。
+
+备用方式：
+- 如果 exe 被安全软件拦截，可以双击 start-windows.bat。
 
 端口被占用时：
 - 可以先在命令行设置 PORT，例如：
@@ -229,6 +234,66 @@ function createPortableReadme() {
 - 本工具只读取石之家公开招募列表和详情接口。
 - 本工具不保存账号、Cookie、Token 或联系信息。
 - 响应招募请使用官方页面登录态，或安装 userscripts 目录中的 Tampermonkey 脚本后手动确认。
+`;
+}
+
+async function createPortableExe(nodeExePath, targetExePath) {
+  const seaEntryPath = path.join(rootDir, "build", "portable-sea-entry.cjs");
+  const seaConfigPath = path.join(rootDir, "build", "portable-sea-config.json");
+  const seaBlobPath = path.join(rootDir, "build", "portable-sea.blob");
+  const postjectCli = path.join(rootDir, "node_modules", "postject", "dist", "cli.js");
+
+  await fs.mkdir(path.dirname(seaEntryPath), { recursive: true });
+  await fs.writeFile(seaEntryPath, createSeaEntry(), "utf8");
+  await fs.writeFile(
+    seaConfigPath,
+    `${JSON.stringify(
+      {
+        main: seaEntryPath,
+        output: seaBlobPath,
+        disableExperimentalSEAWarning: true,
+        useCodeCache: false
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  execFileSync(nodeExePath, ["--experimental-sea-config", seaConfigPath], {
+    cwd: rootDir,
+    stdio: "inherit"
+  });
+  await fs.copyFile(nodeExePath, targetExePath);
+  execFileSync(process.execPath, [
+    postjectCli,
+    targetExePath,
+    "NODE_SEA_BLOB",
+    seaBlobPath,
+    "--sentinel-fuse",
+    "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"
+  ], {
+    cwd: rootDir,
+    stdio: "inherit"
+  });
+}
+
+function createSeaEntry() {
+  return `const path = require("node:path");
+const { createRequire } = require("node:module");
+
+const appRoot = path.dirname(process.execPath);
+process.env.PORT ||= "8797";
+process.env.SERVE_STATIC ||= "true";
+process.env.STATIC_DIR ||= path.join(appRoot, "app", "dist");
+process.env.AUTO_OPEN_BROWSER ||= "true";
+
+console.log("FF14 RisingStones Party Finder Helper");
+console.log("Local URL: http://127.0.0.1:" + process.env.PORT);
+console.log("Close this window to stop the local service.");
+
+const requireFromExe = createRequire(process.execPath);
+requireFromExe(path.join(appRoot, "app", "server.cjs"));
 `;
 }
 

@@ -30,6 +30,9 @@
 - `worklog/2026-05-08-tauri-desktop-prototype.md`
   Tauri 桌面客户端原型工作记录。
 
+- `worklog/2026-05-08-exe-portable.md`
+  EXE 便携版一键启动入口工作记录。
+
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。
 

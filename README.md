@@ -23,7 +23,7 @@ risingstones-partyfinder-helper-v0.1.1-win-x64.zip
 解压后双击：
 
 ```text
-start-windows.bat
+RisingStones-PartyFinder.exe
 ```
 
 浏览器会打开：
@@ -34,6 +34,7 @@ http://127.0.0.1:8797
 
 这个便携包包含：
 
+- 一键启动的 `RisingStones-PartyFinder.exe`。
 - 已构建好的网页前端。
 - 已打包好的本地代理服务。
 - Windows x64 Node.js 运行时。
@@ -41,6 +42,7 @@ http://127.0.0.1:8797
 - 中文使用说明和许可文件。
 
 普通用户不需要运行 `npm install`，也不需要安装 Node.js。
+如果 EXE 被安全软件拦截，可以临时改用 `start-windows.bat` 备用入口。
 
 ## 源码开发
 

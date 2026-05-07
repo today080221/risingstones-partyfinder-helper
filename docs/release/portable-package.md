@@ -23,6 +23,7 @@ release/risingstones-partyfinder-helper-v0.1.1-win-x64.zip
 
 ```text
 risingstones-partyfinder-helper-v0.1.1-win-x64/
+  RisingStones-PartyFinder.exe 一键启动入口
   app/
     dist/               已构建前端
     server.cjs          已打包本地代理
@@ -31,7 +32,7 @@ risingstones-partyfinder-helper-v0.1.1-win-x64/
     LICENSE-Node.js.txt Node.js 许可文件
   userscripts/          Tampermonkey 响应助手
   docs/                 中文项目文档
-  start-windows.bat     启动脚本
+  start-windows.bat     备用启动脚本
   README-使用说明.txt   普通用户说明
   LICENSE
   NOTICE.md
@@ -46,21 +47,30 @@ risingstones-partyfinder-helper-v0.1.1-win-x64/
 用户双击：
 
 ```text
+RisingStones-PartyFinder.exe
+```
+
+EXE 会：
+
+1. 设置默认端口 `8797`。
+2. 启动 `app/server.cjs` 本地服务。
+3. 让 Express 在同一个端口提供 API 和前端静态页面。
+4. 自动打开 `http://127.0.0.1:8797`。
+5. 关闭命令行窗口即可停止本地服务。
+
+备用入口：
+
+```text
 start-windows.bat
 ```
 
-启动脚本会：
-
-1. 设置默认端口 `8797`。
-2. 使用包内 `runtime/node.exe` 启动 `app/server.cjs`。
-3. 让 Express 在同一个端口提供 API 和前端静态页面。
-4. 自动打开 `http://127.0.0.1:8797`。
+备用脚本会使用包内 `runtime/node.exe` 启动同一个本地服务。
 
 端口被占用时，可以先设置环境变量：
 
 ```powershell
 $env:PORT = "8897"
-.\start-windows.bat
+.\RisingStones-PartyFinder.exe
 ```
 
 ## 更新检查
@@ -138,8 +148,11 @@ $env:RELEASE_TARGET = "main"
 
 `scripts/build-portable.mjs` 会优先从 Node.js 官方发布地址下载当前构建环境对应版本的 Windows x64 zip，并复制：
 
-- `node.exe`
+- 根目录 `RisingStones-PartyFinder.exe`：通过 Node.js SEA 注入启动脚本的一键入口。
+- `runtime/node.exe`：备用 bat 启动入口使用。
 - `LICENSE`
+
+EXE 入口由 Node.js Single Executable Applications 能力和 `postject` 生成。当前包尚未做代码签名，因此浏览器或 Windows 仍可能提示未知发布者；后续需要通过代码签名证书降低误报。
 
 如果下载失败，脚本会退回复制当前构建进程的 `process.execPath`。这种情况下公开发布前需要人工确认 `runtime/LICENSE-Node.js.txt` 是否存在；如果不存在，请补齐对应 Node.js 版本许可。
 
@@ -169,7 +182,8 @@ RISINGSTONES_UPDATE_GITEE_REPO
 - `npm test` 通过。
 - `npm run build` 通过。
 - `npm run build:portable` 通过。
-- 解压 zip 后双击 `start-windows.bat` 能打开本地页面。
+- 解压 zip 后双击 `RisingStones-PartyFinder.exe` 能打开本地页面。
+- `start-windows.bat` 备用入口可启动本地页面。
 - `/api/health` 返回 `ok=true`。
 - 选择副本后能拉取招募分页。
 - `runtime/LICENSE-Node.js.txt` 存在。

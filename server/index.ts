@@ -1,4 +1,5 @@
 import express from "express";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -244,7 +245,11 @@ if (process.env.SERVE_STATIC !== "false" && fs.existsSync(path.join(STATIC_DIR, 
 }
 
 app.listen(PORT, "127.0.0.1", () => {
-  console.log(`RisingStones helper API listening on http://127.0.0.1:${PORT}`);
+  const localUrl = `http://127.0.0.1:${PORT}`;
+  console.log(`RisingStones helper API listening on ${localUrl}`);
+  if (process.env.AUTO_OPEN_BROWSER === "true") {
+    openLocalUrl(localUrl);
+  }
 });
 
 async function fetchRecruitPage(
@@ -665,6 +670,22 @@ function sendError(res: express.Response, error: unknown): void {
   res.status(502).json({ message });
 }
 
+function openLocalUrl(url: string): void {
+  const command =
+    process.platform === "win32" ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  try {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true
+    });
+    child.unref();
+  } catch (error) {
+    console.warn(`Could not open browser automatically: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function readAppInfo(baseDir: string): {
   name: string;
   version: string;
@@ -672,14 +693,14 @@ function readAppInfo(baseDir: string): {
   portable: boolean;
   updateRepositories?: Partial<Record<UpdateProvider, string>>;
 } {
-  const manifestPath = path.resolve(baseDir, "../release-manifest.json");
+  const manifestPaths = [path.resolve(baseDir, "../release-manifest.json"), path.resolve(baseDir, "release-manifest.json")];
   const packagePaths = [path.resolve(baseDir, "../package.json"), path.resolve(process.cwd(), "package.json")];
-  const manifest = readJsonFile<{
+  const manifest = readFirstJsonFile<{
     name?: string;
     version?: string;
     builtAt?: string;
     updateRepositories?: Partial<Record<UpdateProvider, string>>;
-  }>(manifestPath);
+  }>(manifestPaths);
 
   if (manifest?.name && manifest.version) {
     return {
@@ -709,6 +730,16 @@ function readAppInfo(baseDir: string): {
     builtAt: process.env.BUILD_TIME ?? "",
     portable: false
   };
+}
+
+function readFirstJsonFile<T>(targets: string[]): T | null {
+  for (const target of targets) {
+    const value = readJsonFile<T>(target);
+    if (value) {
+      return value;
+    }
+  }
+  return null;
 }
 
 function readUpdateRepositories(appInfo: { updateRepositories?: Partial<Record<UpdateProvider, string>> }) {

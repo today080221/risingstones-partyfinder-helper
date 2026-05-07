@@ -90,7 +90,7 @@
 - 无重复职业：默认开启；具体职业已在当前队伍/团队位置中出现时不命中。选择职能分类时，只要该分类下仍有未重复且被招募接受的具体职业，就继续命中。
 - 展开详情：结果卡片提供小型“详情/收起”按钮，展开后按需读取 `/api/recruit-detail`；“队伍详情”展示官方文本说明，“当前队伍构成”单独展示位置矩阵。
 - 可折叠固定侧栏：桌面端左侧筛选器固定在页面左边并独立滚动；折叠后结果区自动扩展，窄屏下恢复为普通顶部筛选区。
-- 便携包构建：`scripts/build-portable.mjs` 组装 Windows x64 zip，包含 `app/server.cjs`、`app/dist`、`runtime/node.exe`、启动脚本、文档和许可文件。
+- 便携包构建：`scripts/build-portable.mjs` 组装 Windows x64 zip，包含一键启动 `RisingStones-PartyFinder.exe`、`app/server.cjs`、`app/dist`、备用 `runtime/node.exe`、启动脚本、文档和许可文件。
 - 桌面客户端原型：`src-tauri` 提供 Tauri 桌面壳，前端在 Tauri 运行时通过 Rust `invoke` 命令访问公开接口，不启动本地 Express 服务。
 - 更新检查：侧栏提供 GitHub/国内镜像下载节点、启动时检查开关和检查结果卡片；服务端代理发布源 API，避免前端跨域限制。
 - 更新状态灯：结果状态区下方展示绿/黄/红更新状态，刷新页面时自动检查当前下载节点的 Release 状态。
