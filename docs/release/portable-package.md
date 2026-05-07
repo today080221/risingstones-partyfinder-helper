@@ -126,6 +126,12 @@ npm run release:gitee
 $env:RISINGSTONES_UPDATE_GITEE_REPO = (git remote get-url gitee)
 ```
 
+脚本默认用 `main` 作为 Release 的目标分支。如果需要改成其他分支或提交，可以设置：
+
+```powershell
+$env:RELEASE_TARGET = "main"
+```
+
 令牌只保存在发布机本地环境或本地密钥管理器中，不写入仓库、文档或聊天记录。
 
 ## Node 运行时

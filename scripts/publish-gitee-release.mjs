@@ -24,7 +24,9 @@ if (!repo) {
 
 await fs.access(zipPath);
 
+console.log(`Preparing Gitee release ${tagName} with ${path.basename(zipPath)}...`);
 const release = await getOrCreateRelease(repo, tagName);
+console.log(`Using Gitee release id ${release.id}. Uploading asset...`);
 await uploadAsset(repo, release.id, zipPath);
 
 console.log(`Gitee release ready: ${release.html_url || `https://gitee.com/${repo}/releases/tag/${tagName}`}`);
@@ -36,10 +38,12 @@ async function getOrCreateRelease(targetRepo, targetTag) {
   }
 
   return apiJson(`https://gitee.com/api/v5/repos/${targetRepo}/releases`, {
+    context: "create Gitee release",
     method: "POST",
     body: formBody({
       access_token: token,
       tag_name: targetTag,
+      target_commitish: process.env.RELEASE_TARGET || "main",
       name: targetTag,
       body: `Windows 便携包：${path.basename(zipPath)}`,
       prerelease: "false"
@@ -49,7 +53,8 @@ async function getOrCreateRelease(targetRepo, targetTag) {
 
 async function findReleaseByTag(targetRepo, targetTag) {
   const releases = await apiJson(
-    `https://gitee.com/api/v5/repos/${targetRepo}/releases?access_token=${encodeURIComponent(token)}&page=1&per_page=20`
+    `https://gitee.com/api/v5/repos/${targetRepo}/releases?access_token=${encodeURIComponent(token)}&page=1&per_page=20`,
+    { context: "list Gitee releases" }
   );
   if (!Array.isArray(releases)) {
     return null;
@@ -60,28 +65,66 @@ async function findReleaseByTag(targetRepo, targetTag) {
 async function uploadAsset(targetRepo, releaseId, targetZipPath) {
   const formData = new FormData();
   formData.set("access_token", token);
+  formData.set("release_id", String(releaseId));
   formData.set("file", new Blob([await fs.readFile(targetZipPath)], { type: "application/zip" }), path.basename(targetZipPath));
 
   return apiJson(`https://gitee.com/api/v5/repos/${targetRepo}/releases/${releaseId}/attach_files`, {
+    context: "upload Gitee release asset",
     method: "POST",
     body: formData
   });
 }
 
 async function apiJson(url, init = {}) {
+  const { context = "Gitee API request", ...fetchInit } = init;
   const response = await fetch(url, {
-    ...init,
+    ...fetchInit,
     headers: {
       Accept: "application/json",
-      ...(init.headers ?? {})
+      Authorization: `Bearer ${token}`,
+      ...(fetchInit.headers ?? {})
     }
   });
   const text = await response.text();
-  const json = text ? JSON.parse(text) : null;
+  const json = safeJsonParse(text);
   if (!response.ok) {
-    throw new Error(json?.message || json?.error || `Gitee API HTTP ${response.status}`);
+    throw new Error(formatApiError(context, response, json, text));
   }
   return json;
+}
+
+function safeJsonParse(text) {
+  if (!text) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function formatApiError(context, response, json, text) {
+  const details = [];
+  const message = json?.message || json?.error;
+  if (message) {
+    details.push(String(message));
+  }
+  if (json?.errors) {
+    details.push(JSON.stringify(json.errors));
+  }
+  if (!details.length && text) {
+    details.push(redactSecrets(text.slice(0, 600)));
+  }
+  const suffix = details.length ? `: ${details.join(" ")}` : "";
+  return `${context} failed: HTTP ${response.status} ${response.statusText}${suffix}`;
+}
+
+function redactSecrets(value) {
+  if (!token) {
+    return value;
+  }
+  return value.replaceAll(token, "[redacted]");
 }
 
 function formBody(entries) {

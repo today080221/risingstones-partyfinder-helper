@@ -216,3 +216,21 @@
   - 发布说明补充 `owner/repo` 是占位写法，执行时要替换为真实仓库坐标；如果本机已配置 `gitee` remote，也可以从本地 Git 配置读取。
   - 修正 `.gitignore`，将发布产物忽略规则收窄为根目录 `/release/`，避免 `docs/release/portable-package.md` 被误忽略。
 - 结束：该轮只修正本地发布脚本的人机提示和中文文档，不改变公开更新源策略，也不使用或保存任何 Gitee 令牌。
+
+## Follow-up: Gitee Release HTTP 400 Diagnosis
+
+- 开始：用户将 `RISINGSTONES_UPDATE_GITEE_REPO` 改为真实 `owner/repo` 后再次执行 `npm run release:gitee`，脚本进入 Gitee API 阶段但返回 `Gitee API HTTP 400`，当前错误信息缺少接口上下文和响应正文。
+- 需求对齐：
+  - 不要求用户把令牌贴到聊天中，仍只从本机环境变量读取。
+  - 失败时要展示可定位的 Gitee 接口阶段、HTTP 状态和脱敏响应正文。
+  - 附件上传请求需要兼容 Gitee API 的 multipart 参数要求。
+- 实现：
+  - `scripts/publish-gitee-release.mjs` 为 Gitee API 请求增加阶段上下文，覆盖列出 Release、创建 Release 和上传附件三段。
+  - API 错误现在会输出 HTTP 状态、状态文本、`message`、`error`、`errors` 或截断后的响应正文，并对本机 token 做脱敏。
+  - 附件上传 multipart 增加 `release_id` 字段，同时保留 URL 中的 release id。
+  - 创建 Release 时增加 `target_commitish`，默认 `main`，也可通过 `RELEASE_TARGET` 覆盖。
+  - 发布说明补充 `RELEASE_TARGET` 用法。
+- 验证：
+  - 使用假 token 和测试仓库坐标执行 `npm run release:gitee`，确认错误变为 `list Gitee releases failed: HTTP 401 ... Access token does not exist`，能够暴露失败阶段和正文，且没有真实 token。
+  - `npm test`：通过，12 项单测全部通过。
+- 结束：当前轮修复 Gitee 发布脚本的 400 诊断能力，并补充可能需要的 Gitee Release 参数；真实发布仍需用户在本机使用有效新令牌重试。
