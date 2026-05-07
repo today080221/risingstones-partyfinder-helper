@@ -21,6 +21,9 @@
 - `release/desktop-tauri.md`
   Tauri 桌面客户端原型、命令层、前置环境和后续更新方案。
 
+- `release/code-signing.md`
+  Windows 代码签名证书、SignTool、密钥管理和后续 CI 签名准备说明。
+
 - `userscripts/tampermonkey.md`
   官方页面手动响应助手脚本的安装、使用和安全边界。
 
@@ -32,6 +35,9 @@
 
 - `worklog/2026-05-08-exe-portable.md`
   EXE 便携版一键启动入口工作记录。
+
+- `worklog/2026-05-08-v0.1.2-release.md`
+  v0.1.2 Release 发布和签名准备工作记录。
 
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。

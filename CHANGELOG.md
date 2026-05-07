@@ -2,6 +2,16 @@
 
 本项目遵循“面向用户说明变化”的轻量变更日志。正式 Release 建议使用 `vX.Y.Z` 标签。
 
+## 0.1.2
+
+- Windows 便携包新增 `RisingStones-PartyFinder.exe` 一键启动入口。
+- 用户解压 zip 后可直接双击 EXE 启动本地服务并自动打开浏览器。
+- 保留 `start-windows.bat` 作为备用启动入口。
+- 便携包构建脚本接入 Node.js SEA 和 `postject` 生成 EXE。
+- 本地服务支持 `AUTO_OPEN_BROWSER=true` 自动打开本地页面。
+- 补充 Tauri 桌面客户端原型源码和文档，为后续签名安装包与自动更新做准备。
+- 补充代码签名准备说明。
+
 ## 0.1.1
 
 - 公开源码和文档不再包含国内镜像真实仓库地址。

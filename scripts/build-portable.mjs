@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
-import { createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import https from "node:https";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,8 +69,11 @@ await fs.writeFile(
 );
 
 await compressStage();
+const zipSha256 = await sha256File(zipPath);
+await fs.writeFile(`${zipPath}.sha256`, `${zipSha256}  ${path.basename(zipPath)}\n`, "utf8");
 
 console.log(`Portable package created: ${zipPath}`);
+console.log(`Portable package SHA256: ${zipSha256}`);
 
 async function readReleaseConfig() {
   const localConfig = await readOptionalJson(path.join(rootDir, "config", "release.local.json"));
@@ -164,6 +168,16 @@ async function downloadFile(url, destination) {
     });
 
     request.on("error", reject);
+  });
+}
+
+async function sha256File(target) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(target);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(hash.digest("hex").toUpperCase()));
   });
 }
 

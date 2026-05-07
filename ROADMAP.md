@@ -23,6 +23,8 @@
 - 安装 Rust/Cargo 后完成 Tauri 桌面客户端 `desktop:build` 原生打包验证。
 - 为 Tauri 桌面客户端增加图标、安装器元数据和更新包签名。
 - 接入 Tauri updater，实现桌面端一键检查、下载、验证和重启更新。
+- 为 EXE 便携包增加可选 Windows 代码签名步骤。
+- 生成 `SHA256SUMS.txt` 并在 Release 说明中展示校验值。
 - 增加 release manifest URL 模式，方便自建镜像源。
 - 增加 zip 校验文件展示和校验。
 - 便携包保留半自动替换评估，但优先级低于 Tauri 正式客户端。

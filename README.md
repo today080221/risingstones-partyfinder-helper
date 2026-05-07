@@ -17,7 +17,7 @@
 从 GitHub Releases 下载 Windows 便携包：
 
 ```text
-risingstones-partyfinder-helper-v0.1.1-win-x64.zip
+risingstones-partyfinder-helper-v0.1.2-win-x64.zip
 ```
 
 解压后双击：
@@ -135,7 +135,7 @@ npm run build:portable
 产物会生成在：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.1-win-x64.zip
+release/risingstones-partyfinder-helper-v0.1.2-win-x64.zip
 ```
 
 发布包构成和注意事项见：
@@ -168,10 +168,12 @@ docs/                   中文项目文档链
 - `docs/features/partyfinder-helper.md`：功能、接口和验收标准
 - `docs/release/portable-package.md`：便携包发布说明
 - `docs/release/desktop-tauri.md`：Tauri 桌面客户端原型说明
+- `docs/release/code-signing.md`：Windows 代码签名准备说明
 - `docs/userscripts/tampermonkey.md`：响应助手脚本说明
 - `docs/collaboration/harness-engineering.md`：Harness 工程协作规则
 - `docs/worklog/2026-05-07-ff14-partyfinder-helper.md`：本轮工作记录
 - `docs/worklog/2026-05-08-tauri-desktop-prototype.md`：Tauri 原型工作记录
+- `docs/worklog/2026-05-08-v0.1.2-release.md`：v0.1.2 发布工作记录
 
 ## 贡献
 

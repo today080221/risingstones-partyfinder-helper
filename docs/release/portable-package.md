@@ -16,13 +16,14 @@ npm run build:portable
 产物位置：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.1-win-x64.zip
+release/risingstones-partyfinder-helper-v0.1.2-win-x64.zip
+release/risingstones-partyfinder-helper-v0.1.2-win-x64.zip.sha256
 ```
 
 ## 发布包内容
 
 ```text
-risingstones-partyfinder-helper-v0.1.1-win-x64/
+risingstones-partyfinder-helper-v0.1.2-win-x64/
   RisingStones-PartyFinder.exe 一键启动入口
   app/
     dist/               已构建前端
@@ -86,6 +87,14 @@ $env:PORT = "8897"
 - 结果状态区下方会显示更新状态灯：绿灯为当前版本对齐，黄灯为有非重大版本更新，红灯为跨重大版本落后。
 
 更新检查只读取公开 Release 信息，不静默替换本地文件，也不执行下载后的 zip。是否下载、解压和替换由用户手动决定。
+
+## 校验文件
+
+`npm run build:portable` 会在 zip 旁边生成 `.zip.sha256` 文件。发布 Release 时应同时上传 zip 和 `.sha256`，用户可以用以下命令校验：
+
+```powershell
+Get-FileHash .\risingstones-partyfinder-helper-v0.1.2-win-x64.zip -Algorithm SHA256
+```
 
 ## 本机敏感配置
 
@@ -185,6 +194,7 @@ RISINGSTONES_UPDATE_GITEE_REPO
 - 解压 zip 后双击 `RisingStones-PartyFinder.exe` 能打开本地页面。
 - `start-windows.bat` 备用入口可启动本地页面。
 - `/api/health` 返回 `ok=true`。
+- `.zip.sha256` 存在，且内容与 `Get-FileHash` 一致。
 - 选择副本后能拉取招募分页。
 - `runtime/LICENSE-Node.js.txt` 存在。
 - 文档没有写入账号、Cookie、Token 或私人联系信息。
