@@ -16,13 +16,13 @@ npm run build:portable
 产物位置：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.0-win-x64.zip
+release/risingstones-partyfinder-helper-v0.1.1-win-x64.zip
 ```
 
 ## 发布包内容
 
 ```text
-risingstones-partyfinder-helper-v0.1.0-win-x64/
+risingstones-partyfinder-helper-v0.1.1-win-x64/
   app/
     dist/               已构建前端
     server.cjs          已打包本地代理

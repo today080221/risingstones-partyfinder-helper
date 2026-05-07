@@ -9,6 +9,8 @@
     "dev": "concurrently -k -n server,web -c green,cyan \"npm:dev:server\" \"npm:dev:web\"",
     "dev:web": "vite --host 127.0.0.1",
     "dev:server": "tsx watch server/index.ts",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
     "build": "tsc -b && vite build",
     "build:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --format=cjs --log-override:empty-import-meta=silent --outfile=build/server.cjs",
     "build:portable": "npm run build && npm run build:server && node scripts/build-portable.mjs",
@@ -30,12 +32,14 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.0",
     "express": "^5.1.0",
     "lucide-react": "^0.468.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.1",
     "@types/express": "^5.0.3",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.14",

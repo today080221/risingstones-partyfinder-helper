@@ -18,11 +18,17 @@
 - `release/portable-package.md`
   Windows 便携包的构建、内容、发布和验收说明。
 
+- `release/desktop-tauri.md`
+  Tauri 桌面客户端原型、命令层、前置环境和后续更新方案。
+
 - `userscripts/tampermonkey.md`
   官方页面手动响应助手脚本的安装、使用和安全边界。
 
 - `worklog/2026-05-07-ff14-partyfinder-helper.md`
   本轮实现的启动、需求对齐、实施与验收记录。
+
+- `worklog/2026-05-08-tauri-desktop-prototype.md`
+  Tauri 桌面客户端原型工作记录。
 
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。

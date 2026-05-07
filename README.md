@@ -17,7 +17,7 @@
 从 GitHub Releases 下载 Windows 便携包：
 
 ```text
-risingstones-partyfinder-helper-v0.1.0-win-x64.zip
+risingstones-partyfinder-helper-v0.1.1-win-x64.zip
 ```
 
 解压后双击：
@@ -54,6 +54,24 @@ npm run dev
 - Web 开发服务默认从 `http://127.0.0.1:5173` 启动。
 - 本地 API 默认从 `http://127.0.0.1:8797` 启动。
 - 如果 `5173` 被占用，Vite 会自动顺延端口。
+
+## Tauri 桌面原型
+
+仓库已加入 Tauri 桌面客户端原型。它复用现有 React 前端，但在 Tauri 运行时通过 Rust 命令直接请求石之家公开接口，不需要启动本地 Express 服务。
+
+```powershell
+npm ci
+npm run desktop:dev
+```
+
+原生安装包构建需要先安装 Rust/Cargo：
+
+```powershell
+cargo --version
+npm run desktop:build
+```
+
+当前开发机尚未安装 Cargo，因此本轮只完成源码原型和前端构建验证。详情见 `docs/release/desktop-tauri.md`。
 
 ## 功能概览
 
@@ -115,7 +133,7 @@ npm run build:portable
 产物会生成在：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.0-win-x64.zip
+release/risingstones-partyfinder-helper-v0.1.1-win-x64.zip
 ```
 
 发布包构成和注意事项见：
@@ -135,6 +153,7 @@ npm run build:portable
 ```text
 server/                 本地 Express 代理
 src/                    React 前端和本地筛选逻辑
+src-tauri/              Tauri 桌面客户端原型
 scripts/                发布打包脚本
 userscripts/            官方页面 Tampermonkey 辅助脚本
 docs/                   中文项目文档链
@@ -146,9 +165,11 @@ docs/                   中文项目文档链
 - `docs/README.md`：项目文档链入口
 - `docs/features/partyfinder-helper.md`：功能、接口和验收标准
 - `docs/release/portable-package.md`：便携包发布说明
+- `docs/release/desktop-tauri.md`：Tauri 桌面客户端原型说明
 - `docs/userscripts/tampermonkey.md`：响应助手脚本说明
 - `docs/collaboration/harness-engineering.md`：Harness 工程协作规则
 - `docs/worklog/2026-05-07-ff14-partyfinder-helper.md`：本轮工作记录
+- `docs/worklog/2026-05-08-tauri-desktop-prototype.md`：Tauri 原型工作记录
 
 ## 贡献
 

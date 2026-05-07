@@ -91,6 +91,7 @@
 - 展开详情：结果卡片提供小型“详情/收起”按钮，展开后按需读取 `/api/recruit-detail`；“队伍详情”展示官方文本说明，“当前队伍构成”单独展示位置矩阵。
 - 可折叠固定侧栏：桌面端左侧筛选器固定在页面左边并独立滚动；折叠后结果区自动扩展，窄屏下恢复为普通顶部筛选区。
 - 便携包构建：`scripts/build-portable.mjs` 组装 Windows x64 zip，包含 `app/server.cjs`、`app/dist`、`runtime/node.exe`、启动脚本、文档和许可文件。
+- 桌面客户端原型：`src-tauri` 提供 Tauri 桌面壳，前端在 Tauri 运行时通过 Rust `invoke` 命令访问公开接口，不启动本地 Express 服务。
 - 更新检查：侧栏提供 GitHub/国内镜像下载节点、启动时检查开关和检查结果卡片；服务端代理发布源 API，避免前端跨域限制。
 - 更新状态灯：结果状态区下方展示绿/黄/红更新状态，刷新页面时自动检查当前下载节点的 Release 状态。
 
@@ -106,3 +107,4 @@
 - 下载节点与状态灯：`npm run release:check` 通过；便携包 `/api/geoip` 探针通过，当前环境推荐国内镜像。
 - 首版发布：GitHub 与国内镜像 `main` / `v0.1.0` 标签均已推送；GitHub Release `v0.1.0` 已生成 Windows 便携包附件。
 - 私有镜像配置：公开源码和文档不包含国内镜像真实地址；未配置国内镜像时更新检查回退 GitHub；镜像 repo 可通过本机环境变量或未提交配置注入便携包 manifest。
+- Tauri 原型：前端 `npm run build` 与 `npm test` 通过；本机缺少 Cargo，原生 `desktop:build` 待安装 Rust 后补验。
