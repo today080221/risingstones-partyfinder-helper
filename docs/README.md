@@ -45,6 +45,9 @@
 - `worklog/2026-05-08-gitee-update-source-config.md`
   国内镜像更新源配置注入与 Tauri 读取修复记录。
 
+- `worklog/2026-05-08-v0.1.5-self-update.md`
+  v0.1.5 一键更新、主按钮视觉修复和本机发布脚本加固记录。
+
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。
 

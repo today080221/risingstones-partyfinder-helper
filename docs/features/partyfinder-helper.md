@@ -35,7 +35,9 @@
   - 加载前端时由本地代理做 GeoIP 检测：中国大陆或检测失败默认国内镜像；如果发布包未配置国内镜像，则回退 GitHub。
   - 支持启动时自动检查更新。
   - 结果状态灯：绿灯表示当前版本与远端 Release 对齐；黄灯表示有非重大版本更新；红灯表示跨重大版本落后，建议直接更新。
-  - 只展示版本、发布页和附件下载入口；默认不静默覆盖本地文件，不执行未确认的更新包。
+  - 发现新版本时优先选择适配当前客户端形态的 zip 更新包。
+  - 一键更新必须由用户手动确认；确认后下载 zip、退出当前程序、覆盖当前解压目录并重启新版。
+  - 更新执行只接受本项目 Release zip，并要求当前目录存在 `release-manifest.json`；开发模式不允许覆盖更新。
 
 ## Official Interfaces
 
@@ -61,7 +63,10 @@
   返回当前工具版本、构建时间、运行形态和平台信息。
 
 - `GET /api/update/check?provider=<github|gitee>`
-  读取 GitHub/国内镜像最新 Release，返回当前版本、最新版本、发布页和附件下载入口；远端 Release 不存在时回退读取最新 Git tag。国内镜像仓库由本机敏感配置注入，不通过前端参数传入。
+  读取 GitHub/国内镜像最新 Release，返回当前版本、最新版本、发布页和 Release 资产列表；远端 Release 不存在时回退读取最新 Git tag。国内镜像仓库由本机敏感配置注入，不通过前端参数传入。
+
+- `POST /api/update/install`
+  Node 便携包的一键更新接口。接收更新包名称和下载地址，校验来源和包名后下载 zip，生成临时 PowerShell 覆盖脚本，响应成功后退出当前进程并重启新版。
 
 - `GET /api/geoip`
   通过公开 GeoIP 服务判断当前出口 IP 所在国家/地区，返回推荐下载节点；失败时优先回退国内镜像，未配置国内镜像时回退 GitHub。
@@ -78,7 +83,7 @@
 
 ## Planned
 
-- 更新机制后续增强：可在第一版检查和下载入口基础上，再评估半自动替换、校验文件和签名验证。
+- 更新机制后续增强：在当前用户确认式覆盖更新基础上，继续评估签名校验、安装器形态和正式 Tauri updater。
 
 ## Implemented Components
 
@@ -94,6 +99,7 @@
 - 桌面客户端原型：`src-tauri` 提供 Tauri 桌面壳，前端在 Tauri 运行时通过 Rust `invoke` 命令访问公开接口，不启动本地 Express 服务。
 - 更新检查：侧栏提供 GitHub/国内镜像下载节点、启动时检查开关和检查结果卡片；服务端代理发布源 API，避免前端跨域限制。
 - 更新状态灯：结果状态区下方展示绿/黄/红更新状态，刷新页面时自动检查当前下载节点的 Release 状态。
+- 一键更新：Node 便携包通过 `/api/update/install` 执行下载、覆盖和重启；Tauri 桌面版通过 `risingstones_install_update` 执行同等流程。
 
 ## Verification Snapshot
 
@@ -107,4 +113,4 @@
 - 下载节点与状态灯：`npm run release:check` 通过；便携包 `/api/geoip` 探针通过，当前环境推荐国内镜像。
 - 首版发布：GitHub 与国内镜像 `main` / `v0.1.0` 标签均已推送；GitHub Release `v0.1.0` 已生成 Windows 便携包附件。
 - 私有镜像配置：公开源码和文档不包含国内镜像真实地址；未配置国内镜像时更新检查回退 GitHub；镜像 repo 可通过本机环境变量或未提交配置注入便携包 manifest。
-- Tauri 原型：前端 `npm run build` 与 `npm test` 通过；本机缺少 Cargo，原生 `desktop:build` 待安装 Rust 后补验。
+- v0.1.5 一键更新：`npm test`、`npm run build`、`npm run build:server`、`npm run build:portable`、`npm run package:desktop:portable` 通过；最终发布候选包均已注入 GitHub 和国内镜像更新源配置，并生成对应 `.sha256` 校验文件。

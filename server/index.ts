@@ -59,10 +59,12 @@ app.use((req, res, next) => {
     "Access-Control-Allow-Origin",
     origin && /^http:\/\/127\.0\.0\.1:\d+$/.test(origin) ? origin : "http://127.0.0.1:5173"
   );
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   next();
 });
+
+app.use(express.json({ limit: "32kb" }));
 
 app.use((req, res, next) => {
   if (req.method === "OPTIONS") {
@@ -139,6 +141,22 @@ app.get("/api/update/check", async (req, res) => {
     };
 
     res.json(payload);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post("/api/update/install", async (req, res) => {
+  const request = readUpdateInstallRequest(req.body);
+  if (!request) {
+    res.status(400).json({ message: "更新请求缺少有效的更新包名称或下载地址。" });
+    return;
+  }
+
+  try {
+    const result = await preparePortableUpdate(request.assetName, request.downloadUrl);
+    res.json(result);
+    scheduleProcessExitForUpdate();
   } catch (error) {
     sendError(res, error);
   }
@@ -346,7 +364,7 @@ async function fetchLatestRelease(
       (provider === "gitee" ? `https://gitee.com/${repo}/releases/tag/${encodeURIComponent(tagName)}` : ""),
     publishedAt: readObjectString(json, "published_at") || readObjectString(json, "created_at"),
     body: readObjectString(json, "body"),
-    assets: normalizeReleaseAssets(json.assets)
+    assets: normalizeReleaseAssets(json.assets ?? json.attach_files)
   };
 }
 
@@ -479,7 +497,7 @@ function normalizeReleaseAssets(value: unknown): UpdateAsset[] {
       }
       const record = asset as Record<string, unknown>;
       const name = readObjectString(record, "name");
-      const downloadUrl = readObjectString(record, "browser_download_url");
+      const downloadUrl = readObjectString(record, "browser_download_url") || readObjectString(record, "download_url");
       if (!name || !downloadUrl) {
         return null;
       }
@@ -491,6 +509,168 @@ function normalizeReleaseAssets(value: unknown): UpdateAsset[] {
       };
     })
     .filter((asset): asset is UpdateAsset => Boolean(asset));
+}
+
+function readUpdateInstallRequest(value: unknown): { assetName: string; downloadUrl: string } | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const assetName = readObjectString(record, "assetName").trim();
+  const downloadUrl = readObjectString(record, "downloadUrl").trim();
+  return assetName && downloadUrl ? { assetName, downloadUrl } : null;
+}
+
+async function preparePortableUpdate(assetName: string, downloadUrl: string) {
+  if (process.platform !== "win32") {
+    throw new Error("当前一键更新仅支持 Windows 便携版。");
+  }
+  if (APP_INFO.runtime !== "portable") {
+    throw new Error("开发模式或非 Node 便携版不支持通过本地服务覆盖更新。");
+  }
+
+  validateUpdateAsset(assetName, downloadUrl, "portable");
+  const appRoot = path.dirname(process.execPath);
+  const manifestPath = path.join(appRoot, "release-manifest.json");
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error("当前目录没有 release-manifest.json，无法确认便携包根目录。");
+  }
+
+  const updateDir = path.join(process.env.TEMP || appRoot, `risingstones-update-${process.pid}`);
+  const zipPath = path.join(updateDir, sanitizeFileName(assetName));
+  const extractDir = path.join(updateDir, "extract");
+  const scriptPath = path.join(updateDir, "apply-update.ps1");
+
+  await fs.promises.rm(updateDir, { recursive: true, force: true });
+  await fs.promises.mkdir(updateDir, { recursive: true });
+  await downloadUpdateFile(downloadUrl, zipPath);
+  await fs.promises.writeFile(
+    scriptPath,
+    createSelfUpdateScript({
+      processId: process.pid,
+      zipPath,
+      extractDir,
+      appRoot,
+      executablePath: process.execPath
+    }),
+    "utf8"
+  );
+  startPowerShellScript(scriptPath);
+
+  return {
+    message: "更新包已下载，程序即将退出并自动重启新版。",
+    restart: true,
+    assetName
+  };
+}
+
+async function downloadUpdateFile(url: string, destination: string) {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "risingstones-partyfinder-helper-updater"
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`更新包下载失败：HTTP ${response.status}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.byteLength < 1024) {
+    throw new Error("更新包内容异常，文件过小。");
+  }
+  await fs.promises.writeFile(destination, buffer);
+}
+
+function validateUpdateAsset(assetName: string, downloadUrl: string, runtime: "portable" | "desktop") {
+  const lowerName = assetName.toLowerCase();
+  if (!lowerName.endsWith(".zip") || !lowerName.startsWith("risingstones-partyfinder-helper-v")) {
+    throw new Error("只允许安装本项目 Release 中的 zip 更新包。");
+  }
+  if (runtime === "portable" && (!lowerName.includes("-win-x64.zip") || lowerName.includes("desktop"))) {
+    throw new Error("当前客户端只能安装 Node 便携版 win-x64 更新包。");
+  }
+  if (runtime === "desktop" && !lowerName.includes("desktop-win-x64-portable")) {
+    throw new Error("当前客户端只能安装桌面便携版更新包。");
+  }
+  if (!isTrustedUpdateUrl(downloadUrl)) {
+    throw new Error("更新包下载地址不在受信任的发布源内。");
+  }
+}
+
+function isTrustedUpdateUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && /(^|\.)github\.com$|(^|\.)gitee\.com$/i.test(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function createSelfUpdateScript(input: {
+  processId: number;
+  zipPath: string;
+  extractDir: string;
+  appRoot: string;
+  executablePath: string;
+}) {
+  return `$ErrorActionPreference = 'Stop'
+$processId = ${input.processId}
+$zipPath = ${psQuote(input.zipPath)}
+$extractDir = ${psQuote(input.extractDir)}
+$appRoot = ${psQuote(input.appRoot)}
+$executablePath = ${psQuote(input.executablePath)}
+
+try { Wait-Process -Id $processId -Timeout 60 -ErrorAction SilentlyContinue } catch {}
+Start-Sleep -Milliseconds 700
+if (Test-Path -LiteralPath $extractDir) { Remove-Item -LiteralPath $extractDir -Recurse -Force }
+Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
+$payloadDir = $extractDir
+$items = @(Get-ChildItem -LiteralPath $extractDir -Force)
+if ($items.Count -eq 1 -and $items[0].PSIsContainer -and (Test-Path -LiteralPath (Join-Path $items[0].FullName 'release-manifest.json'))) {
+  $payloadDir = $items[0].FullName
+}
+if (!(Test-Path -LiteralPath (Join-Path $payloadDir 'release-manifest.json'))) {
+  throw '更新包缺少 release-manifest.json，已取消覆盖。'
+}
+for ($attempt = 1; $attempt -le 8; $attempt++) {
+  try {
+    Get-ChildItem -LiteralPath $payloadDir -Force | ForEach-Object {
+      Copy-Item -LiteralPath $_.FullName -Destination $appRoot -Recurse -Force
+    }
+    break
+  } catch {
+    if ($attempt -eq 8) { throw }
+    Start-Sleep -Milliseconds 800
+  }
+}
+Start-Process -FilePath $executablePath -WorkingDirectory $appRoot
+`;
+}
+
+function startPowerShellScript(scriptPath: string) {
+  const child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true
+  });
+  child.unref();
+}
+
+let updateExitScheduled = false;
+
+function scheduleProcessExitForUpdate() {
+  if (updateExitScheduled) {
+    return;
+  }
+  updateExitScheduled = true;
+  setTimeout(() => process.exit(0), 1500).unref();
+}
+
+function sanitizeFileName(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.-]/g, "_");
+}
+
+function psQuote(value: string): string {
+  return `'${String(value).replace(/'/g, "''")}'`;
 }
 
 function extractRecruitQuery(raw: Record<string, unknown>): RecruitQuery {

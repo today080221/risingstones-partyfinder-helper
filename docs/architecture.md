@@ -31,6 +31,7 @@ flowchart LR
 - 强制要求 `fb_name` 非空，避免无边界拉全站招募。
 - 保留请求间隔、最大页数、取消和重试。
 - 代理单条招募详情，用于按需展开卡片。
+- 在 Node 便携包中执行用户确认式一键更新：校验 Release zip、下载、退出、覆盖并重启。
 - 在 production/portable 模式下提供前端静态文件。
 
 ## Tauri 桌面职责
@@ -38,7 +39,8 @@ flowchart LR
 - 复用同一套 React 前端。
 - 在桌面运行时把 API 调用切换为 `@tauri-apps/api/core.invoke`。
 - Rust 命令层直接访问石之家公开接口，不启动本地 Node/Express 服务。
-- 为后续 Tauri updater、安装包签名和更低误报分发形态打基础。
+- Rust 命令层执行桌面便携包用户确认式一键更新。
+- 为后续正式 updater、安装包签名和更低误报分发形态打基础。
 
 ## 前端职责
 

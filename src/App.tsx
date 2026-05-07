@@ -18,7 +18,15 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { checkUpdate, fetchAppVersion, fetchGeoIp, fetchMeta, fetchRecruitDetail, fetchRecruits } from "./api";
+import {
+  checkUpdate,
+  fetchAppVersion,
+  fetchGeoIp,
+  fetchMeta,
+  fetchRecruitDetail,
+  fetchRecruits,
+  installUpdate
+} from "./api";
 import { OFFICIAL_SOURCE_REPO, UPDATE_PROVIDER_LABELS } from "./config";
 import { filterRecruitRows } from "./lib/filters";
 import { FULL_PARTY_POSITIONS, LIGHT_PARTY_POSITIONS, formatJobNames, getOpenPositions } from "./lib/jobs";
@@ -36,6 +44,7 @@ import type {
   RecruitFetchPayload,
   RecruitQuery,
   RecruitRow,
+  UpdateAsset,
   UpdateCheckPayload,
   UpdateProvider
 } from "./types";
@@ -80,6 +89,9 @@ export function App() {
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckPayload | null>(null);
   const [updateError, setUpdateError] = useState("");
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
+  const [updateInstallMessage, setUpdateInstallMessage] = useState("");
+  const [updateInstallError, setUpdateInstallError] = useState("");
   const [payload, setPayload] = useState<RecruitFetchPayload | null>(null);
   const [fetchError, setFetchError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -192,6 +204,10 @@ export function App() {
   const positionOptions = teamComposition === "轻锐小队" ? LIGHT_PARTY_POSITIONS : FULL_PARTY_POSITIONS;
 
   const filtered = useMemo(() => filterRecruitRows(payload?.rows ?? [], filters, meta), [payload, filters, meta]);
+  const suggestedUpdateAsset = useMemo(
+    () => selectUpdateAsset(updateInfo?.assets ?? [], appVersion),
+    [appVersion, updateInfo]
+  );
 
   const groupedJobs = useMemo(() => {
     if (!meta) {
@@ -289,6 +305,8 @@ export function App() {
     setUpdateProvider(provider);
     setUpdateInfo(null);
     setUpdateError("");
+    setUpdateInstallMessage("");
+    setUpdateInstallError("");
   }
 
   async function runUpdateCheck(silent = false) {
@@ -297,6 +315,8 @@ export function App() {
     updateAbortRef.current = controller;
     setIsCheckingUpdate(true);
     setUpdateError("");
+    setUpdateInstallMessage("");
+    setUpdateInstallError("");
 
     try {
       const result = await checkUpdate(updateProvider, controller.signal);
@@ -310,6 +330,33 @@ export function App() {
         updateAbortRef.current = null;
         setIsCheckingUpdate(false);
       }
+    }
+  }
+
+  async function installSuggestedUpdate() {
+    if (!suggestedUpdateAsset) {
+      setUpdateInstallError("没有找到适合当前客户端的更新包。");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `将下载并安装 ${suggestedUpdateAsset.name}。\n\n当前程序会自动退出，覆盖当前解压目录，然后重新启动新版。请先确认没有正在进行的全量拉取。`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsInstallingUpdate(true);
+    setUpdateInstallMessage("");
+    setUpdateInstallError("");
+
+    try {
+      const result = await installUpdate(suggestedUpdateAsset);
+      setUpdateInstallMessage(result.message);
+    } catch (error) {
+      setUpdateInstallError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsInstallingUpdate(false);
     }
   }
 
@@ -632,16 +679,41 @@ export function App() {
                 {updateInfo.sourceLabel}
                 {updateInfo.publishedAt ? ` / ${updateInfo.publishedAt.slice(0, 10)}` : ""}
               </div>
+              {updateInfo.isNewer ? (
+                <div className="update-install-box">
+                  <div className="selected-asset">
+                    <span>更新包</span>
+                    <strong>
+                      {suggestedUpdateAsset
+                        ? `${suggestedUpdateAsset.name}${
+                            suggestedUpdateAsset.size ? ` (${formatBytes(suggestedUpdateAsset.size)})` : ""
+                          }`
+                        : "未找到适合当前客户端的 zip 包"}
+                    </strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="primary-button full"
+                    onClick={() => void installSuggestedUpdate()}
+                    disabled={!suggestedUpdateAsset || isInstallingUpdate}
+                  >
+                    {isInstallingUpdate ? <Loader2 size={15} className="spin" /> : <Download size={15} />}
+                    {isInstallingUpdate ? "正在下载更新" : "一键更新"}
+                  </button>
+                  {updateInstallMessage && <div className="mini-notice success">{updateInstallMessage}</div>}
+                  {updateInstallError && <div className="mini-notice error">{updateInstallError}</div>}
+                </div>
+              ) : (
+                <div className="mini-notice success">当前客户端已经与最新 Release 对齐。</div>
+              )}
               <div className="asset-list">
                 {updateInfo.assets.slice(0, 3).map((asset) => (
-                  <a href={asset.downloadUrl} target="_blank" rel="noreferrer" key={asset.downloadUrl}>
+                  <span className="asset-item" key={asset.downloadUrl}>
                     {asset.name}
                     {asset.size ? ` (${formatBytes(asset.size)})` : ""}
-                  </a>
+                  </span>
                 ))}
-                <a href={updateInfo.latestUrl} target="_blank" rel="noreferrer">
-                  发布页
-                </a>
+                <span className="asset-item">备用发布页：{updateInfo.latestVersion}</span>
               </div>
             </div>
           )}
@@ -1274,7 +1346,35 @@ function getUpdateStatusText(
   if (level === "red") {
     return `当前 ${info.currentVersion} 落后到重大版本 ${info.latestVersion}，建议直接更新。`;
   }
-  return `当前 ${info.currentVersion}，最新 ${info.latestVersion}，可择时下载更新。`;
+  return `当前 ${info.currentVersion}，最新 ${info.latestVersion}，可一键下载并更新。`;
+}
+
+function selectUpdateAsset(assets: UpdateAsset[], version: AppVersionPayload | null): UpdateAsset | null {
+  if (!assets.length) {
+    return null;
+  }
+
+  const zipAssets = assets.filter((asset) => asset.name.toLowerCase().endsWith(".zip"));
+  if (!zipAssets.length) {
+    return null;
+  }
+
+  if (version?.runtime === "desktop") {
+    return (
+      zipAssets.find((asset) => asset.name.includes("desktop-win-x64-portable")) ??
+      zipAssets.find((asset) => asset.name.includes("desktop")) ??
+      null
+    );
+  }
+
+  if (version?.runtime === "portable" || version?.portable) {
+    return (
+      zipAssets.find((asset) => asset.name.includes("-win-x64") && !asset.name.includes("desktop")) ??
+      null
+    );
+  }
+
+  return null;
 }
 
 function hasMajorVersionGap(current: string, latest: string): boolean {

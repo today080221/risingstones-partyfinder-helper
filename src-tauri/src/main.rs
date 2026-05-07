@@ -3,7 +3,16 @@
 use chrono::Utc;
 use reqwest::header::{ACCEPT, ORIGIN, REFERER, USER_AGENT};
 use serde_json::{json, Map, Value};
-use std::{collections::BTreeMap, time::Duration};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::Path,
+    process::{Command, Stdio},
+    time::Duration,
+};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 const OFFICIAL_API_HOME: &str = "https://apiff14risingstones.web.sdo.com/api/home/";
 const OFFICIAL_ORIGIN: &str = "https://ff14risingstones.web.sdo.com";
@@ -173,6 +182,55 @@ async fn risingstones_check_update(provider: String) -> Result<Value, String> {
     }))
 }
 
+#[tauri::command]
+async fn risingstones_install_update(asset_name: String, download_url: String) -> Result<Value, String> {
+    if std::env::consts::OS != "windows" {
+        return Err("当前一键更新仅支持 Windows 桌面便携版。".to_string());
+    }
+
+    validate_update_asset(&asset_name, &download_url, "desktop")?;
+    let executable_path = std::env::current_exe().map_err(|error| format!("读取当前程序路径失败：{error}"))?;
+    let app_root = executable_path
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "读取当前程序目录失败。".to_string())?;
+    if !app_root.join("release-manifest.json").exists() {
+        return Err("当前目录没有 release-manifest.json，无法确认桌面便携包根目录。".to_string());
+    }
+
+    let update_dir = std::env::temp_dir().join(format!("risingstones-update-{}", std::process::id()));
+    let zip_path = update_dir.join(sanitize_file_name(&asset_name));
+    let extract_dir = update_dir.join("extract");
+    let script_path = update_dir.join("apply-update.ps1");
+
+    let _ = fs::remove_dir_all(&update_dir);
+    fs::create_dir_all(&update_dir).map_err(|error| format!("创建更新临时目录失败：{error}"))?;
+    download_update_file(&download_url, &zip_path).await?;
+    fs::write(
+        &script_path,
+        create_self_update_script(
+            std::process::id(),
+            &zip_path,
+            &extract_dir,
+            &app_root,
+            &executable_path,
+        ),
+    )
+    .map_err(|error| format!("写入更新脚本失败：{error}"))?;
+    start_powershell_script(&script_path)?;
+
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_millis(1500));
+        std::process::exit(0);
+    });
+
+    Ok(json!({
+        "message": "更新包已下载，程序即将退出并自动重启新版。",
+        "restart": true,
+        "assetName": asset_name
+    }))
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -181,10 +239,153 @@ fn main() {
             risingstones_recruits,
             risingstones_recruit_detail,
             risingstones_geoip,
-            risingstones_check_update
+            risingstones_check_update,
+            risingstones_install_update
         ])
         .run(tauri::generate_context!())
         .expect("failed to run RisingStones desktop app");
+}
+
+async fn download_update_file(download_url: &str, destination: &Path) -> Result<(), String> {
+    let response = http_client()?
+        .get(download_url)
+        .header(USER_AGENT, "risingstones-partyfinder-helper-updater")
+        .send()
+        .await
+        .map_err(|error| format!("更新包下载失败：{error}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("更新包下载失败：HTTP {}", status.as_u16()));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| format!("更新包读取失败：{error}"))?;
+    if bytes.len() < 1024 {
+        return Err("更新包内容异常，文件过小。".to_string());
+    }
+    fs::write(destination, bytes).map_err(|error| format!("保存更新包失败：{error}"))
+}
+
+fn validate_update_asset(asset_name: &str, download_url: &str, runtime: &str) -> Result<(), String> {
+    let lower_name = asset_name.to_ascii_lowercase();
+    if !lower_name.ends_with(".zip") || !lower_name.starts_with("risingstones-partyfinder-helper-v") {
+        return Err("只允许安装本项目 Release 中的 zip 更新包。".to_string());
+    }
+    if runtime == "desktop" && !lower_name.contains("desktop-win-x64-portable") {
+        return Err("当前客户端只能安装桌面便携版更新包。".to_string());
+    }
+    if runtime == "portable" && (!lower_name.contains("-win-x64.zip") || lower_name.contains("desktop")) {
+        return Err("当前客户端只能安装 Node 便携版 win-x64 更新包。".to_string());
+    }
+    if !is_trusted_update_url(download_url) {
+        return Err("更新包下载地址不在受信任的发布源内。".to_string());
+    }
+    Ok(())
+}
+
+fn is_trusted_update_url(value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    if url.scheme() != "https" {
+        return false;
+    }
+    let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+    host == "github.com"
+        || host.ends_with(".github.com")
+        || host == "gitee.com"
+        || host.ends_with(".gitee.com")
+}
+
+fn create_self_update_script(
+    process_id: u32,
+    zip_path: &Path,
+    extract_dir: &Path,
+    app_root: &Path,
+    executable_path: &Path,
+) -> String {
+    format!(
+        r#"$ErrorActionPreference = 'Stop'
+$processId = {process_id}
+$zipPath = {zip_path}
+$extractDir = {extract_dir}
+$appRoot = {app_root}
+$executablePath = {executable_path}
+
+try {{ Wait-Process -Id $processId -Timeout 60 -ErrorAction SilentlyContinue }} catch {{}}
+Start-Sleep -Milliseconds 700
+if (Test-Path -LiteralPath $extractDir) {{ Remove-Item -LiteralPath $extractDir -Recurse -Force }}
+Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
+$payloadDir = $extractDir
+$items = @(Get-ChildItem -LiteralPath $extractDir -Force)
+if ($items.Count -eq 1 -and $items[0].PSIsContainer -and (Test-Path -LiteralPath (Join-Path $items[0].FullName 'release-manifest.json'))) {{
+  $payloadDir = $items[0].FullName
+}}
+if (!(Test-Path -LiteralPath (Join-Path $payloadDir 'release-manifest.json'))) {{
+  throw '更新包缺少 release-manifest.json，已取消覆盖。'
+}}
+for ($attempt = 1; $attempt -le 8; $attempt++) {{
+  try {{
+    Get-ChildItem -LiteralPath $payloadDir -Force | ForEach-Object {{
+      Copy-Item -LiteralPath $_.FullName -Destination $appRoot -Recurse -Force
+    }}
+    break
+  }} catch {{
+    if ($attempt -eq 8) {{ throw }}
+    Start-Sleep -Milliseconds 800
+  }}
+}}
+Start-Process -FilePath $executablePath -WorkingDirectory $appRoot
+"#,
+        process_id = process_id,
+        zip_path = ps_quote_path(zip_path),
+        extract_dir = ps_quote_path(extract_dir),
+        app_root = ps_quote_path(app_root),
+        executable_path = ps_quote_path(executable_path)
+    )
+}
+
+fn start_powershell_script(script_path: &Path) -> Result<(), String> {
+    let script = script_path.to_string_lossy().into_owned();
+    let mut command = Command::new("powershell.exe");
+    command
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+        ])
+        .arg("-File")
+        .arg(script)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        command.creation_flags(0x08000000);
+    }
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("启动更新脚本失败：{error}"))
+}
+
+fn sanitize_file_name(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn ps_quote_path(value: &Path) -> String {
+    let text = value.to_string_lossy();
+    format!("'{}'", text.replace('\'', "''"))
 }
 
 async fn fetch_recruit_page(

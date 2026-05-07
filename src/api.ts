@@ -5,7 +5,9 @@ import type {
   RecruitDetail,
   RecruitFetchPayload,
   RecruitQuery,
+  UpdateAsset,
   UpdateCheckPayload,
+  UpdateInstallPayload,
   UpdateProvider
 } from "./types";
 
@@ -66,6 +68,27 @@ export async function checkUpdate(
   const params = new URLSearchParams({ provider });
   const response = await fetch(`/api/update/check?${params.toString()}`, { signal });
   return readJson<UpdateCheckPayload>(response);
+}
+
+export async function installUpdate(asset: UpdateAsset, signal?: AbortSignal): Promise<UpdateInstallPayload> {
+  const payload = {
+    assetName: asset.name,
+    downloadUrl: asset.downloadUrl
+  };
+
+  if (isTauriRuntime()) {
+    return invokeTauri<UpdateInstallPayload>("risingstones_install_update", payload, signal);
+  }
+
+  const response = await fetch("/api/update/install", {
+    method: "POST",
+    signal,
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  return readJson<UpdateInstallPayload>(response);
 }
 
 let tauriInvokePromise: Promise<typeof import("@tauri-apps/api/core").invoke> | null = null;

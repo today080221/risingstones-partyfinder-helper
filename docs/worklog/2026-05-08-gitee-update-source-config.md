@@ -68,3 +68,21 @@
   - 本机带发布环境变量构建的 `0.1.4` Node 与 Tauri 包均包含国内镜像配置。
   - GitHub Actions 构建出的公开 GitHub Release 包不包含国内镜像配置，说明 GitHub 仓库 secret 当前未配置或为空；如果要让 GitHub Release 包也内置国内镜像，需要先配置 GitHub Secret 后重新发布。
   - 若要只在国内镜像下载包内携带国内镜像地址，应使用本机带环境变量构建出的 zip 上传到国内镜像 Release。
+
+## Follow-Up: Local Release Robustness
+
+- 开始：用户本机发布时遇到两个问题：
+  - 普通 PowerShell 执行 `npm run package:desktop:portable` 时提示 `cargo metadata ... program not found`。
+  - 上传 Gitee Release 资产时对端 TLS socket 中断，Node fetch 抛出 `TypeError: terminated`。
+- 需求对齐：
+  - 本机发布脚本应尽量自动发现 Cargo 和 Visual Studio C++ 环境。
+  - Gitee Release 上传应支持网络中断重试。
+  - Gitee Release 应同时上传 zip 和对应 `.sha256`。
+- 实现：
+  - 新增 `scripts/run-tauri-build.mjs`，自动把 `~/.cargo/bin` 加入 PATH，并在 Windows 上通过 `vswhere` 加载 `VsDevCmd.bat`。
+  - `desktop:build` 和 `desktop:build:portable` 改为使用该 wrapper。
+  - `scripts/publish-gitee-release.mjs` 上传同名 `.sha256`，并对 socket 中断、5xx、429 等临时错误做重试。
+  - 重复资产错误会提示并保留远端已有文件，便于失败后重跑。
+- 补充修正：
+  - 普通 PowerShell 下 Tauri CLI 转发 Cargo 仍可能丢失 Windows SDK 库路径；桌面便携包 `--no-bundle` 路径改为临时 `.cmd` 内加载 `VsDevCmd.bat` 后直接执行 `cargo build --release`。
+  - 本机 `npm run desktop:build:portable`、`npm run package:desktop:portable` 已通过。

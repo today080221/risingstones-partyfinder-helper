@@ -11,6 +11,8 @@ const repo = await resolveGiteeRepo();
 const zipPath =
   process.env.RELEASE_ZIP ||
   path.join(rootDir, "release", `${packageJson.name}-v${version}-win-x64.zip`);
+const assetPaths = await resolveAssetPaths(zipPath);
+const maxRetries = readRetryCount();
 
 if (!token) {
   throw new Error("Missing GITEE_ACCESS_TOKEN. Set it locally before publishing the Gitee Release.");
@@ -22,12 +24,16 @@ if (!repo) {
   );
 }
 
-await fs.access(zipPath);
+for (const assetPath of assetPaths) {
+  await fs.access(assetPath);
+}
 
-console.log(`Preparing Gitee release ${tagName} with ${path.basename(zipPath)}...`);
+console.log(`Preparing Gitee release ${tagName} with ${assetPaths.map((assetPath) => path.basename(assetPath)).join(", ")}...`);
 const release = await getOrCreateRelease(repo, tagName);
-console.log(`Using Gitee release id ${release.id}. Uploading asset...`);
-await uploadAsset(repo, release.id, zipPath);
+console.log(`Using Gitee release id ${release.id}. Uploading assets...`);
+for (const assetPath of assetPaths) {
+  await uploadAssetWithRetry(repo, release.id, assetPath);
+}
 
 console.log(`Gitee release ready: ${release.html_url || `https://gitee.com/${repo}/releases/tag/${tagName}`}`);
 
@@ -37,24 +43,28 @@ async function getOrCreateRelease(targetRepo, targetTag) {
     return existing;
   }
 
-  return apiJson(`https://gitee.com/api/v5/repos/${targetRepo}/releases`, {
-    context: "create Gitee release",
-    method: "POST",
-    body: formBody({
-      access_token: token,
-      tag_name: targetTag,
-      target_commitish: process.env.RELEASE_TARGET || "main",
-      name: targetTag,
-      body: `Windows 便携包：${path.basename(zipPath)}`,
-      prerelease: "false"
+  return withRetry("create Gitee release", () =>
+    apiJson(`https://gitee.com/api/v5/repos/${targetRepo}/releases`, {
+      context: "create Gitee release",
+      method: "POST",
+      body: formBody({
+        access_token: token,
+        tag_name: targetTag,
+        target_commitish: process.env.RELEASE_TARGET || "main",
+        name: targetTag,
+        body: `Windows 便携包：${assetPaths.map((assetPath) => path.basename(assetPath)).join(", ")}`,
+        prerelease: "false"
+      })
     })
-  });
+  );
 }
 
 async function findReleaseByTag(targetRepo, targetTag) {
-  const releases = await apiJson(
-    `https://gitee.com/api/v5/repos/${targetRepo}/releases?access_token=${encodeURIComponent(token)}&page=1&per_page=20`,
-    { context: "list Gitee releases" }
+  const releases = await withRetry("list Gitee releases", () =>
+    apiJson(
+      `https://gitee.com/api/v5/repos/${targetRepo}/releases?access_token=${encodeURIComponent(token)}&page=1&per_page=20`,
+      { context: "list Gitee releases" }
+    )
   );
   if (!Array.isArray(releases)) {
     return null;
@@ -62,35 +72,74 @@ async function findReleaseByTag(targetRepo, targetTag) {
   return releases.find((release) => release?.tag_name === targetTag) ?? null;
 }
 
-async function uploadAsset(targetRepo, releaseId, targetZipPath) {
-  const formData = new FormData();
-  formData.set("access_token", token);
-  formData.set("release_id", String(releaseId));
-  formData.set("file", new Blob([await fs.readFile(targetZipPath)], { type: "application/zip" }), path.basename(targetZipPath));
+async function uploadAssetWithRetry(targetRepo, releaseId, targetPath) {
+  try {
+    return await withRetry(`upload ${path.basename(targetPath)}`, async () => {
+      const formData = new FormData();
+      formData.set("access_token", token);
+      formData.set("release_id", String(releaseId));
+      formData.set("file", new Blob([await fs.readFile(targetPath)], { type: contentTypeFor(targetPath) }), path.basename(targetPath));
 
-  return apiJson(`https://gitee.com/api/v5/repos/${targetRepo}/releases/${releaseId}/attach_files`, {
-    context: "upload Gitee release asset",
-    method: "POST",
-    body: formData
-  });
+      return apiJson(`https://gitee.com/api/v5/repos/${targetRepo}/releases/${releaseId}/attach_files`, {
+        context: `upload Gitee release asset ${path.basename(targetPath)}`,
+        method: "POST",
+        body: formData
+      });
+    });
+  } catch (error) {
+    if (isDuplicateAssetError(error)) {
+      console.warn(`Asset already exists on Gitee, keeping existing file: ${path.basename(targetPath)}`);
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function apiJson(url, init = {}) {
   const { context = "Gitee API request", ...fetchInit } = init;
-  const response = await fetch(url, {
-    ...fetchInit,
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(fetchInit.headers ?? {})
-    }
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      ...fetchInit,
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(fetchInit.headers ?? {})
+      }
+    });
+  } catch (error) {
+    const wrapped = new Error(`${context} failed before response: ${redactSecrets(error?.message || String(error))}`);
+    wrapped.cause = error;
+    throw wrapped;
+  }
   const text = await response.text();
   const json = safeJsonParse(text);
   if (!response.ok) {
-    throw new Error(formatApiError(context, response, json, text));
+    const error = new Error(formatApiError(context, response, json, text));
+    error.status = response.status;
+    error.responseText = text;
+    throw error;
   }
   return json;
+}
+
+async function withRetry(context, action) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
+    try {
+      return await action();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maxRetries || !isRetryableError(error)) {
+        throw error;
+      }
+      const delayMs = 1200 * attempt;
+      console.warn(`${context} failed on attempt ${attempt}/${maxRetries}: ${redactSecrets(error.message || String(error))}`);
+      console.warn(`Retrying in ${delayMs}ms...`);
+      await sleep(delayMs);
+    }
+  }
+  throw lastError;
 }
 
 function safeJsonParse(text) {
@@ -135,6 +184,19 @@ function formBody(entries) {
     }
   }
   return params;
+}
+
+async function resolveAssetPaths(targetZipPath) {
+  const normalizedZipPath = path.resolve(rootDir, targetZipPath);
+  const assets = [normalizedZipPath];
+  const checksumPath = `${normalizedZipPath}.sha256`;
+  try {
+    await fs.access(checksumPath);
+    assets.push(checksumPath);
+  } catch {
+    // The checksum is optional for backwards compatibility with older locally built packages.
+  }
+  return assets;
 }
 
 async function resolveGiteeRepo() {
@@ -191,4 +253,31 @@ function normalizeRepo(value) {
 
 function looksLikePlaceholder(value) {
   return /<[^>]+>/.test(value);
+}
+
+function contentTypeFor(targetPath) {
+  return targetPath.endsWith(".sha256") ? "text/plain" : "application/zip";
+}
+
+function readRetryCount() {
+  const parsed = Number(process.env.GITEE_RELEASE_RETRIES || 4);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 4;
+}
+
+function isRetryableError(error) {
+  const status = Number(error?.status || 0);
+  if (status === 429 || status >= 500) {
+    return true;
+  }
+  const message = `${error?.message || ""} ${error?.cause?.message || ""} ${error?.cause?.code || ""}`;
+  return /terminated|socket|UND_ERR_SOCKET|ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed|other side closed/i.test(message);
+}
+
+function isDuplicateAssetError(error) {
+  const message = `${error?.message || ""} ${error?.responseText || ""}`;
+  return /already|exists|duplicate|taken|已存在|重复|同名/i.test(message);
+}
+
+function sleep(delayMs) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }

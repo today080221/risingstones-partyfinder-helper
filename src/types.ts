@@ -158,6 +158,12 @@ export interface UpdateCheckPayload {
   fetchedAt: string;
 }
 
+export interface UpdateInstallPayload {
+  message: string;
+  restart: boolean;
+  assetName: string;
+}
+
 export interface GeoIpPayload {
   countryCode: string;
   countryName: string;

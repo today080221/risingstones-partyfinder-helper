@@ -49,6 +49,10 @@ npm run desktop:build
 npm run package:desktop:portable
 ```
 
+`desktop:build` 和 `desktop:build:portable` 通过 `scripts/run-tauri-build.mjs` 启动。该 wrapper 会在 Windows 上自动把 `~/.cargo/bin` 加入 PATH，并通过 `vswhere` 查找 Visual Studio C++ 环境，避免普通 PowerShell 中出现 `cargo metadata ... program not found`。
+
+桌面便携包使用 `--no-bundle` 路径时，wrapper 会在同一个临时 `.cmd` 中加载 `VsDevCmd.bat`、构建前端并直接执行 `cargo build --release`。这比让 Tauri CLI 再转发 Cargo 更稳定，可避免 `windows.h`、`OleAut32.lib`、`advapi32.lib` 等 Windows SDK 路径偶发丢失。
+
 ## 本机前置条件
 
 Tauri 原生构建需要 Rust/Cargo 和 Windows 桌面构建环境。本机已验证：
@@ -75,14 +79,14 @@ C:\Users\<User>\.rustup\settings.toml
 当前已通过 `npm run package:desktop:portable` 生成：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.4-desktop-win-x64-portable.zip
-release/risingstones-partyfinder-helper-v0.1.4-desktop-win-x64-portable.zip.sha256
+release/risingstones-partyfinder-helper-v0.1.5-desktop-win-x64-portable.zip
+release/risingstones-partyfinder-helper-v0.1.5-desktop-win-x64-portable.zip.sha256
 ```
 
 SHA256：
 
 ```text
-220108F0F4EF2231DC70BC620311B07CFBF42A91567F3EAB32001C28BC65A9C4
+以同目录 `.zip.sha256` 文件为准。
 ```
 
 zip 内主程序：
@@ -117,11 +121,14 @@ failed to bundle project `timeout: global`
 - `risingstones_recruit_detail`
 - `risingstones_geoip`
 - `risingstones_check_update`
+- `risingstones_install_update`
 
 这些命令对齐现有 Express `/api/*` 的响应结构，前端会自动判断运行环境：
 
 - 普通浏览器：继续请求 `/api/*`。
 - Tauri 桌面：改用 `invoke(...)`。
+
+`risingstones_install_update` 只允许安装本项目 Release 中的桌面便携版 zip。命令会要求 EXE 同目录存在 `release-manifest.json`，然后下载 zip、生成临时 PowerShell 覆盖脚本、退出当前程序并重启新版。开发目录或没有 manifest 的目录不会执行覆盖更新。
 
 ## 安全边界
 
@@ -133,6 +140,6 @@ failed to bundle project `timeout: global`
 ## 后续计划
 
 - 继续完善 Windows 安装器元数据和 NSIS 缓存方案。
-- 接入 Tauri updater，使用 GitHub/Gitee Release 分发签名更新包。
+- 在现有用户确认式覆盖更新基础上，继续评估正式 Tauri updater 和签名更新包。
 - 评估 Windows 代码签名证书，降低浏览器和系统的未知软件提示。
 - 移动端另开 Capacitor/Tauri Mobile 方案，复用共享前端和筛选核心。

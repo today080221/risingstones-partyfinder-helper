@@ -1,6 +1,6 @@
 {
   "name": "risingstones-partyfinder-helper",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "FF14 国服石之家副本招募本地全量拉取与筛选工具",
   "private": false,
   "license": "MIT",
@@ -10,8 +10,8 @@
     "dev:web": "vite --host 127.0.0.1",
     "dev:server": "tsx watch server/index.ts",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build",
-    "desktop:build:portable": "tauri build --no-bundle",
+    "desktop:build": "node scripts/run-tauri-build.mjs",
+    "desktop:build:portable": "node scripts/run-tauri-build.mjs --no-bundle",
     "build": "tsc -b && vite build",
     "build:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --format=cjs --log-override:empty-import-meta=silent --outfile=build/server.cjs",
     "build:portable": "npm run build && npm run build:server && node scripts/build-portable.mjs",
