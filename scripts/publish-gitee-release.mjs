@@ -96,11 +96,29 @@ function formBody(entries) {
 
 async function resolveGiteeRepo() {
   const localConfig = await readOptionalJson(path.join(rootDir, "config", "release.local.json"));
-  return (
-    normalizeRepo(process.env.RISINGSTONES_UPDATE_GITEE_REPO) ||
-    normalizeRepo(localConfig?.updateRepositories?.gitee) ||
-    ""
-  );
+  const candidates = [
+    { source: "RISINGSTONES_UPDATE_GITEE_REPO", value: process.env.RISINGSTONES_UPDATE_GITEE_REPO },
+    { source: "config/release.local.json updateRepositories.gitee", value: localConfig?.updateRepositories?.gitee }
+  ];
+
+  for (const candidate of candidates) {
+    const rawValue = typeof candidate.value === "string" ? candidate.value.trim() : "";
+    if (!rawValue) {
+      continue;
+    }
+    if (looksLikePlaceholder(rawValue)) {
+      throw new Error(
+        `${candidate.source} still contains a placeholder. Use the real Gitee owner/repo value without angle brackets.`
+      );
+    }
+    const repo = normalizeRepo(rawValue);
+    if (repo) {
+      return repo;
+    }
+    throw new Error(`${candidate.source} is invalid. Use owner/repo or https://gitee.com/owner/repo.`);
+  }
+
+  return "";
 }
 
 async function readOptionalJson(target) {
@@ -126,4 +144,8 @@ function normalizeRepo(value) {
   } catch {
     return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed) ? trimmed : "";
   }
+}
+
+function looksLikePlaceholder(value) {
+  return /<[^>]+>/.test(value);
 }

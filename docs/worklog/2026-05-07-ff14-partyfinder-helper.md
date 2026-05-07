@@ -204,3 +204,15 @@
   - GitHub Release 资产 SHA256：`ce90394e52af15887474b95fd94778960f9f15b444944cb42f99a3104e6f6175`。
   - 国内镜像 Release 脚本已就绪，但用户误贴过的旧令牌不得使用；等待用户撤销旧令牌并在发布机本地配置新令牌后再执行 `npm run release:gitee`。
 - 结束：当前轮完成公开源码脱敏、国内镜像本机配置化、首次进入自动更新检查、`v0.1.1` 双远端源码和标签推送，以及 GitHub Release 验证。遗留风险是旧 `v0.1.0` Release/历史提交可能仍包含旧国内镜像信息；是否删除旧 Release、删除旧标签或重写历史，需要用户明确确认后单独处理。
+
+## Follow-up: Gitee Release Local Config Guardrail
+
+- 开始：用户执行 `npm run release:gitee` 时，把文档里的 `"<owner>/<repo>"` 占位符原样设置到了 `RISINGSTONES_UPDATE_GITEE_REPO`，脚本只报“缺少 repo”，不够直观。
+- 需求对齐：Gitee 仓库地址仍然不能写入公开源码或文档；脚本需要在本机执行时识别占位符和非法仓库格式，给出不泄露真实地址的修正提示。
+- 实现：
+  - `scripts/publish-gitee-release.mjs` 在解析仓库配置时区分环境变量和本地配置来源。
+  - 检测到 `<...>` 占位符时，直接提示替换为真实 `owner/repo` 且不要带尖括号。
+  - 检测到非 `owner/repo` 或 Gitee URL 格式时，直接提示合法写法，不继续访问 Gitee API。
+  - 发布说明补充 `owner/repo` 是占位写法，执行时要替换为真实仓库坐标；如果本机已配置 `gitee` remote，也可以从本地 Git 配置读取。
+  - 修正 `.gitignore`，将发布产物忽略规则收窄为根目录 `/release/`，避免 `docs/release/portable-package.md` 被误忽略。
+- 结束：该轮只修正本地发布脚本的人机提示和中文文档，不改变公开更新源策略，也不使用或保存任何 Gitee 令牌。
