@@ -1,0 +1,53 @@
+name: Bug 反馈
+description: 报告工具中的错误或异常行为
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题描述
+      description: 简要说明发生了什么。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开...
+        2. 选择...
+        3. 点击...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      placeholder: v0.1.0 / main 分支
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: 运行方式
+      options:
+        - Windows 便携包
+        - 源码开发模式
+        - 其他
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或截图
+      description: 请不要粘贴账号、Cookie、Token、联系信息或隐私截图。
