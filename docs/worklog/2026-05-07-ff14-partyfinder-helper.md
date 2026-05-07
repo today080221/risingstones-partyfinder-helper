@@ -163,3 +163,8 @@
 - 验证：
   - `npm run release:check`：通过，包含单测、前端构建、后端打包和便携包生成。
   - 便携包探针：使用包内 `runtime/node.exe` 启动后，`/api/health`、`/api/version`、`/api/geoip` 与页面标题检查通过；当前 GeoIP 推荐节点为 Gitee。
+- 发布验证：
+  - 已推送 `main` 到 GitHub `origin` 与 Gitee `gitee`。
+  - 已推送 `v0.1.0` 标签到 GitHub `origin` 与 Gitee `gitee`。
+  - GitHub Release workflow 成功完成，并上传 `risingstones-partyfinder-helper-v0.1.0-win-x64.zip`。
+  - 本地更新检查探针：GitHub 主仓库与 Gitee 镜像均返回 `latest=v0.1.0`、`isNewer=false`。

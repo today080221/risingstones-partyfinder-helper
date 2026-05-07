@@ -103,3 +103,4 @@
 - 固定侧栏更新：`npm test`、`npm run build` 通过；`/api/health` 和本地 Web 页面探针通过。
 - 开源发布与更新检查：`npm run release:check` 通过；便携包运行探针通过；GitHub/Gitee 更新检查接口均可返回最新 Release 信息。
 - 下载节点与状态灯：`npm run release:check` 通过；便携包 `/api/geoip` 探针通过，当前环境推荐 Gitee。
+- 首版发布：GitHub/Gitee `main` 与 `v0.1.0` 标签均已推送；GitHub Release `v0.1.0` 已生成 Windows 便携包附件；GitHub/Gitee 更新检查均对齐 `v0.1.0`。
