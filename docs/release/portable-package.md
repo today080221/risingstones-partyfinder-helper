@@ -16,14 +16,14 @@ npm run build:portable
 产物位置：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.2-win-x64.zip
-release/risingstones-partyfinder-helper-v0.1.2-win-x64.zip.sha256
+release/risingstones-partyfinder-helper-v0.1.3-win-x64.zip
+release/risingstones-partyfinder-helper-v0.1.3-win-x64.zip.sha256
 ```
 
 ## 发布包内容
 
 ```text
-risingstones-partyfinder-helper-v0.1.2-win-x64/
+risingstones-partyfinder-helper-v0.1.3-win-x64/
   RisingStones-PartyFinder.exe 一键启动入口
   app/
     dist/               已构建前端
@@ -93,7 +93,7 @@ $env:PORT = "8897"
 `npm run build:portable` 会在 zip 旁边生成 `.zip.sha256` 文件。发布 Release 时应同时上传 zip 和 `.sha256`，用户可以用以下命令校验：
 
 ```powershell
-Get-FileHash .\risingstones-partyfinder-helper-v0.1.2-win-x64.zip -Algorithm SHA256
+Get-FileHash .\risingstones-partyfinder-helper-v0.1.3-win-x64.zip -Algorithm SHA256
 ```
 
 ## 本机敏感配置

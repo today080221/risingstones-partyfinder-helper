@@ -20,6 +20,7 @@ async fn risingstones_version() -> Result<Value, String> {
         "version": env!("CARGO_PKG_VERSION"),
         "builtAt": option_env!("BUILD_TIME").unwrap_or(""),
         "portable": false,
+        "runtime": "desktop",
         "platform": format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
     }))
 }
@@ -69,7 +70,10 @@ async fn risingstones_recruits(query: BTreeMap<String, String>) -> Result<Value,
     }
 
     if rows.len() < count {
-        warnings.push(format!("官方 count={count}，本次实际拉取 {} 条。", rows.len()));
+        warnings.push(format!(
+            "官方 count={count}，本次实际拉取 {} 条。",
+            rows.len()
+        ));
     }
 
     Ok(json!({
@@ -85,14 +89,23 @@ async fn risingstones_recruits(query: BTreeMap<String, String>) -> Result<Value,
 
 #[tauri::command]
 async fn risingstones_recruit_detail(id: u64) -> Result<Value, String> {
-    fetch_official("recruit/getRecruitFbDetail", vec![("id".to_string(), id.to_string())]).await
+    fetch_official(
+        "recruit/getRecruitFbDetail",
+        vec![("id".to_string(), id.to_string())],
+    )
+    .await
 }
 
 #[tauri::command]
 async fn risingstones_geoip() -> Result<Value, String> {
     let endpoints = [
         ("ipwho.is", "https://ipwho.is/", "country_code", "country"),
-        ("ipapi.co", "https://ipapi.co/json/", "country_code", "country_name")
+        (
+            "ipapi.co",
+            "https://ipapi.co/json/",
+            "country_code",
+            "country_name",
+        ),
     ];
     let mut errors: Vec<String> = Vec::new();
 
@@ -114,7 +127,7 @@ async fn risingstones_geoip() -> Result<Value, String> {
                     "fetchedAt": now_iso()
                 }));
             }
-            Err(error) => errors.push(format!("{name}: {error}"))
+            Err(error) => errors.push(format!("{name}: {error}")),
         }
     }
 
@@ -174,10 +187,13 @@ fn main() {
         .expect("failed to run RisingStones desktop app");
 }
 
-async fn fetch_recruit_page(query: &BTreeMap<String, String>, page: usize) -> Result<Value, String> {
+async fn fetch_recruit_page(
+    query: &BTreeMap<String, String>,
+    page: usize,
+) -> Result<Value, String> {
     let mut params = vec![
         ("page".to_string(), page.to_string()),
-        ("limit".to_string(), PAGE_SIZE.to_string())
+        ("limit".to_string(), PAGE_SIZE.to_string()),
     ];
     for (key, value) in query {
         let value = value.trim();
@@ -210,7 +226,7 @@ async fn fetch_official(path: &str, params: Vec<(String, String)>) -> Result<Val
 async fn fetch_official_once(
     client: &reqwest::Client,
     path: &str,
-    params: &[(String, String)]
+    params: &[(String, String)],
 ) -> Result<Value, String> {
     let url = format!("{OFFICIAL_API_HOME}{path}");
     let response = client
@@ -221,7 +237,7 @@ async fn fetch_official_once(
         .header(REFERER, OFFICIAL_REFERER)
         .header(
             USER_AGENT,
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
         )
         .send()
         .await
@@ -236,7 +252,8 @@ async fn fetch_official_once(
         return Err(format!("官方接口 HTTP {}", status.as_u16()));
     }
 
-    let json: Value = serde_json::from_str(&text).map_err(|error| format!("官方接口 JSON 解析失败：{error}"))?;
+    let json: Value =
+        serde_json::from_str(&text).map_err(|error| format!("官方接口 JSON 解析失败：{error}"))?;
     let code = read_code(&json);
     if code != 10000 && code != 0 {
         let message = read_string(&json, "msg");
@@ -246,7 +263,9 @@ async fn fetch_official_once(
             message
         });
     }
-    json.get("data").cloned().ok_or_else(|| "官方接口没有返回 data。".to_string())
+    json.get("data")
+        .cloned()
+        .ok_or_else(|| "官方接口没有返回 data。".to_string())
 }
 
 async fn fetch_latest_release(provider: &str, repo: &str) -> Result<Value, String> {
@@ -271,7 +290,7 @@ async fn fetch_latest_release(provider: &str, repo: &str) -> Result<Value, Strin
                 "assets": normalize_release_assets(json.get("assets").or_else(|| json.get("attach_files")))
             }))
         }
-        Err(_) => fetch_latest_tag(provider, repo).await
+        Err(_) => fetch_latest_tag(provider, repo).await,
     }
 }
 
@@ -282,7 +301,11 @@ async fn fetch_latest_tag(provider: &str, repo: &str) -> Result<Value, String> {
         format!("https://gitee.com/api/v5/repos/{repo}/tags?page=1&per_page=1")
     };
     let tags = fetch_json_url(&url).await?;
-    let first = tags.as_array().and_then(|values| values.first()).cloned().unwrap_or(Value::Null);
+    let first = tags
+        .as_array()
+        .and_then(|values| values.first())
+        .cloned()
+        .unwrap_or(Value::Null);
     let tag_name = read_string(&first, "name");
     if tag_name.is_empty() {
         return Err("发布源没有 Release，也没有可用标签。".to_string());
@@ -327,7 +350,11 @@ async fn fetch_json_url(url: &str) -> Result<Value, String> {
         .await
         .map_err(|error| format!("响应读取失败：{error}"))?;
     if !status.is_success() {
-        return Err(format!("HTTP {}: {}", status.as_u16(), text.chars().take(180).collect::<String>()));
+        return Err(format!(
+            "HTTP {}: {}",
+            status.as_u16(),
+            text.chars().take(180).collect::<String>()
+        ));
     }
     serde_json::from_str(&text).map_err(|error| format!("JSON 解析失败：{error}"))
 }
@@ -386,7 +413,8 @@ fn normalize_job_meta(job_config: &Value) -> Value {
                         }
                     }
                 }
-                child_ids_by_category_id.insert(attack_id.to_string(), Value::Array(attack_children));
+                child_ids_by_category_id
+                    .insert(attack_id.to_string(), Value::Array(attack_children));
             }
         }
     }
@@ -426,7 +454,7 @@ fn value_as_array(value: Option<&Value>) -> Vec<Value> {
     match value {
         Some(Value::Array(values)) => values.clone(),
         Some(Value::Object(_)) => vec![value.cloned().unwrap_or(Value::Null)],
-        _ => Vec::new()
+        _ => Vec::new(),
     }
 }
 
@@ -441,7 +469,7 @@ fn read_count(page: &Value) -> usize {
     match page.get("count") {
         Some(Value::Number(value)) => value.as_u64().unwrap_or(0) as usize,
         Some(Value::String(value)) => value.parse::<usize>().unwrap_or(0),
-        _ => 0
+        _ => 0,
     }
 }
 
@@ -478,7 +506,10 @@ fn normalize_repo(value: &str) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
-    if let Some(path) = trimmed.strip_prefix("https://github.com/").or_else(|| trimmed.strip_prefix("https://gitee.com/")) {
+    if let Some(path) = trimmed
+        .strip_prefix("https://github.com/")
+        .or_else(|| trimmed.strip_prefix("https://gitee.com/"))
+    {
         return normalize_repo(path);
     }
     let parts: Vec<&str> = trimmed.split('/').collect();
@@ -490,9 +521,9 @@ fn normalize_repo(value: &str) -> String {
 
 fn is_repo_part(value: &str) -> bool {
     !value.is_empty()
-        && value
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-'))
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-')
+        })
 }
 
 fn recommend_update_provider(country_code: &str) -> &'static str {
@@ -558,7 +589,11 @@ fn normalize_version(value: &str) -> String {
 }
 
 fn read_string(value: &Value, key: &str) -> String {
-    value.get(key).and_then(Value::as_str).unwrap_or("").to_string()
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
 }
 
 fn fallback_string(value: &Value, primary: &str, fallback: &str) -> String {

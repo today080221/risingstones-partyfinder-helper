@@ -82,7 +82,8 @@ app.get("/api/version", (_, res) => {
     version: APP_INFO.version,
     builtAt: APP_INFO.builtAt,
     portable: APP_INFO.portable,
-    platform: `${process.platform}-${process.arch}`
+    platform: `${process.platform}-${process.arch}`,
+    runtime: APP_INFO.runtime
   });
 });
 
@@ -691,6 +692,7 @@ function readAppInfo(baseDir: string): {
   version: string;
   builtAt: string;
   portable: boolean;
+  runtime: "development" | "portable" | "desktop";
   updateRepositories?: Partial<Record<UpdateProvider, string>>;
 } {
   const manifestPaths = [path.resolve(baseDir, "../release-manifest.json"), path.resolve(baseDir, "release-manifest.json")];
@@ -699,6 +701,7 @@ function readAppInfo(baseDir: string): {
     name?: string;
     version?: string;
     builtAt?: string;
+    runtime?: "development" | "portable" | "desktop";
     updateRepositories?: Partial<Record<UpdateProvider, string>>;
   }>(manifestPaths);
 
@@ -708,6 +711,7 @@ function readAppInfo(baseDir: string): {
       version: manifest.version,
       builtAt: manifest.builtAt ?? "",
       portable: true,
+      runtime: manifest.runtime ?? "portable",
       updateRepositories: manifest.updateRepositories
     };
   }
@@ -719,7 +723,8 @@ function readAppInfo(baseDir: string): {
         name: packageJson.name,
         version: packageJson.version,
         builtAt: process.env.BUILD_TIME ?? "",
-        portable: false
+        portable: false,
+        runtime: "development"
       };
     }
   }
@@ -728,7 +733,8 @@ function readAppInfo(baseDir: string): {
     name: "risingstones-partyfinder-helper",
     version: "0.0.0",
     builtAt: process.env.BUILD_TIME ?? "",
-    portable: false
+    portable: false,
+    runtime: "development"
   };
 }
 

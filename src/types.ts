@@ -135,6 +135,7 @@ export interface AppVersionPayload {
   builtAt: string;
   portable: boolean;
   platform: string;
+  runtime?: "development" | "portable" | "desktop";
 }
 
 export interface UpdateAsset {

@@ -14,10 +14,24 @@
 
 ## 普通用户：开箱即用
 
-从 GitHub Releases 下载 Windows 便携包：
+推荐从 GitHub Releases 下载 Tauri 桌面便携包：
 
 ```text
-risingstones-partyfinder-helper-v0.1.2-win-x64.zip
+risingstones-partyfinder-helper-v0.1.3-desktop-win-x64-portable.zip
+```
+
+解压后双击：
+
+```text
+RisingStones-PartyFinder-Desktop.exe
+```
+
+这个版本直接打开桌面窗口，不需要安装 Node.js，也不会启动本地浏览器或本地 Express 服务。
+
+备用的本地服务便携包仍可使用：
+
+```text
+risingstones-partyfinder-helper-v0.1.3-win-x64.zip
 ```
 
 解压后双击：
@@ -59,21 +73,27 @@ npm run dev
 
 ## Tauri 桌面原型
 
-仓库已加入 Tauri 桌面客户端原型。它复用现有 React 前端，但在 Tauri 运行时通过 Rust 命令直接请求石之家公开接口，不需要启动本地 Express 服务。
+仓库已加入 Tauri 桌面客户端。它复用现有 React 前端，但在 Tauri 运行时通过 Rust 命令直接请求石之家公开接口，不需要启动本地 Express 服务。
 
 ```powershell
 npm ci
 npm run desktop:dev
 ```
 
-原生安装包构建需要先安装 Rust/Cargo：
+桌面便携包构建需要 Rust/Cargo 和 Windows C++ 构建环境：
 
 ```powershell
 cargo --version
-npm run desktop:build
+npm run package:desktop:portable
 ```
 
-当前开发机尚未安装 Cargo，因此本轮只完成源码原型和前端构建验证。详情见 `docs/release/desktop-tauri.md`。
+产物会生成在：
+
+```text
+release/risingstones-partyfinder-helper-v0.1.3-desktop-win-x64-portable.zip
+```
+
+安装包构建可继续使用 `npm run desktop:build`，但首次下载 NSIS 工具包时可能受网络影响。详情见 `docs/release/desktop-tauri.md`。
 
 ## 功能概览
 
@@ -135,7 +155,7 @@ npm run build:portable
 产物会生成在：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.2-win-x64.zip
+release/risingstones-partyfinder-helper-v0.1.3-win-x64.zip
 ```
 
 发布包构成和注意事项见：
@@ -174,6 +194,7 @@ docs/                   中文项目文档链
 - `docs/worklog/2026-05-07-ff14-partyfinder-helper.md`：本轮工作记录
 - `docs/worklog/2026-05-08-tauri-desktop-prototype.md`：Tauri 原型工作记录
 - `docs/worklog/2026-05-08-v0.1.2-release.md`：v0.1.2 发布工作记录
+- `docs/worklog/2026-05-08-tauri-build-run.md`：Tauri 便携版实机构建记录
 
 ## 贡献
 

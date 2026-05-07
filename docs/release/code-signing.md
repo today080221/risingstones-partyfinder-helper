@@ -6,11 +6,13 @@
 
 ## 当前结论
 
-- `v0.1.2` 先发布未签名 EXE 便携包。
+- `v0.1.2` 已先发布未签名 Node EXE 便携包。
+- `v0.1.3` 桌面便携包改为 Tauri EXE，仍需要签名来降低 SmartScreen 提示。
 - 后续签名目标优先级：
-  1. `RisingStones-PartyFinder.exe`
-  2. 未来的安装器，例如 Tauri NSIS installer
-  3. 更新包校验文件，例如 `SHA256SUMS.txt`
+  1. `RisingStones-PartyFinder-Desktop.exe`
+  2. `RisingStones-PartyFinder.exe`
+  3. 未来的安装器，例如 Tauri NSIS installer
+  4. 更新包校验文件，例如 `SHA256SUMS.txt`
 - `v0.1.2` 开始随 zip 生成并发布 `.zip.sha256`，作为签名前的基础完整性校验。
 - 当前 zip 仍可能被 Chrome/Windows 标记为未知或不常见下载；真正缓解需要签名证书和下载信誉积累。
 
@@ -45,7 +47,7 @@
 示例命令形态：
 
 ```powershell
-signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a .\RisingStones-PartyFinder.exe
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a .\RisingStones-PartyFinder-Desktop.exe
 ```
 
 实际命令会根据证书来源变化，例如使用证书存储、PFX 文件或 Azure Trusted Signing。
@@ -66,18 +68,18 @@ GitHub Actions 签名：
 
 ## 建议路线
 
-1. 先继续发布 `v0.1.2` 未签名 EXE 便携包，确认一键启动体验。
+1. 先发布 `v0.1.3` 未签名 Tauri 桌面便携包，确认桌面窗口体验。
 2. 采购或开通代码签名方案。
 3. 本地用 `signtool verify /pa` 验证签名。
 4. 构建脚本增加可选签名步骤：
    - 检测 `WINDOWS_SIGNING_ENABLED=true`。
-   - 对 `RisingStones-PartyFinder.exe` 签名。
+   - 对 `RisingStones-PartyFinder-Desktop.exe` 和备用 `RisingStones-PartyFinder.exe` 签名。
    - 生成 `SHA256SUMS.txt`。
 5. 下一版 Release 开始发布签名 EXE。
 
 ## 验收
 
-- `RisingStones-PartyFinder.exe` 右键属性显示有效数字签名。
-- `signtool verify /pa .\RisingStones-PartyFinder.exe` 通过。
+- `RisingStones-PartyFinder-Desktop.exe` 右键属性显示有效数字签名。
+- `signtool verify /pa .\RisingStones-PartyFinder-Desktop.exe` 通过。
 - Release 页面提供 zip SHA256。
 - 下载后校验哈希与 Release 说明一致。

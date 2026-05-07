@@ -26,10 +26,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build portable package
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-msvc --profile default
+          rustup default stable-x86_64-pc-windows-msvc
+
+      - name: Build Node portable package
         env:
           RISINGSTONES_UPDATE_GITEE_REPO: ${{ secrets.RISINGSTONES_UPDATE_GITEE_REPO }}
         run: npm run release:check
+
+      - name: Build Tauri desktop portable package
+        run: npm run package:desktop:portable
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -45,14 +53,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
-          $zip = Get-ChildItem -Path release -Filter *.zip | Select-Object -First 1
-          if (-not $zip) {
-            throw "No release zip found."
-          }
-          $checksum = Get-ChildItem -Path release -Filter *.sha256 | Select-Object -First 1
-          $assets = @($zip.FullName)
-          if ($checksum) {
-            $assets += $checksum.FullName
+          $assets = Get-ChildItem -Path "release/*.zip", "release/*.sha256" -File | ForEach-Object { $_.FullName }
+          if (-not $assets -or $assets.Count -eq 0) {
+            throw "No release assets found."
           }
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {

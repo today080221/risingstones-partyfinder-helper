@@ -559,7 +559,7 @@ export function App() {
           <Field label="当前版本">
             <div className="inline-value">
               {appVersion ? `v${appVersion.version}` : "读取中"}
-              {appVersion?.portable ? <span>便携包</span> : <span>开发模式</span>}
+              {appVersion ? <span>{getVersionRuntimeLabel(appVersion)}</span> : null}
             </div>
           </Field>
           <div className="two-columns">
@@ -1230,6 +1230,16 @@ function formatBytes(value: number): string {
     return `${Math.max(1, Math.round(value / 1024))} KB`;
   }
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function getVersionRuntimeLabel(version: AppVersionPayload): string {
+  if (version.runtime === "desktop") {
+    return "桌面版";
+  }
+  if (version.runtime === "portable" || version.portable) {
+    return "便携包";
+  }
+  return "开发模式";
 }
 
 function getUpdateLevel(

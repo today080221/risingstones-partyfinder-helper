@@ -1,15 +1,15 @@
-# Tauri 桌面客户端原型说明
+# Tauri 桌面客户端说明
 
 ## 目标
 
 Tauri 桌面客户端用于替代“zip + node.exe + bat”的主分发形态，让普通用户获得更接近常规 Windows 应用的体验。
 
-当前阶段是原型：
+当前阶段已完成 Windows 桌面便携版实机构建验证：
 
 - 复用现有 React + Vite 前端。
 - 在 Tauri 运行时通过 `@tauri-apps/api/core.invoke` 调用 Rust 命令。
 - Rust 命令直接请求石之家公开接口，不启动本地 Express 服务。
-- 现有 Express 和 Windows 便携包仍保留，作为开发和备用分发路径。
+- 现有 Express 和 Node Windows 便携包仍保留，作为 Web 开发和备用分发路径。
 
 ## 架构
 
@@ -43,20 +43,67 @@ npm run desktop:dev
 npm run desktop:build
 ```
 
-## 本机前置条件
-
-Tauri 原生构建需要 Rust/Cargo 和 Windows 桌面构建环境。当前开发机在本轮检查时没有安装 `cargo`，所以 `npm run desktop:build` 会停在：
-
-```text
-failed to run 'cargo metadata' ... program not found
-```
-
-安装 Rust 后需要重新执行：
+构建 Windows 桌面便携包：
 
 ```powershell
-cargo --version
-npm run desktop:build
+npm run package:desktop:portable
 ```
+
+## 本机前置条件
+
+Tauri 原生构建需要 Rust/Cargo 和 Windows 桌面构建环境。本机已验证：
+
+```text
+rustc 1.95.0
+cargo 1.95.0
+stable-x86_64-pc-windows-msvc
+Visual Studio 2026 C++ x64 toolchain
+```
+
+如果当前 PowerShell 没有 VS C++ 编译环境，可用 VS Developer Command Prompt，或显式加载 `VsDevCmd.bat` 后再构建。
+
+rustup 安装时若提示已有：
+
+```text
+C:\Users\<User>\.rustup\settings.toml
+```
+
+这不是构建失败；只要显式安装并设定 `stable-x86_64-pc-windows-msvc` 即可。
+
+## 已验证产物
+
+当前已通过 `npm run package:desktop:portable` 生成：
+
+```text
+release/risingstones-partyfinder-helper-v0.1.3-desktop-win-x64-portable.zip
+release/risingstones-partyfinder-helper-v0.1.3-desktop-win-x64-portable.zip.sha256
+```
+
+SHA256：
+
+```text
+068F0503630EA768F12254F2E603F1F63DF1DB1DAD20342B5BC15977BCA349D4
+```
+
+zip 内主程序：
+
+```text
+RisingStones-PartyFinder-Desktop.exe
+```
+
+短启动验收：主程序可启动并显示窗口标题 `FF14 副本招募筛选器`。
+
+GitHub Release workflow 已接入该构建命令，打 `v*` 标签时会同时生成 Node 便携包和 Tauri 桌面便携包。
+
+## 安装包状态
+
+`npm run desktop:build` 会继续尝试生成 NSIS 安装包。本机实测 Rust release 编译已经通过，但 Tauri 在下载 NSIS 工具包时可能出现：
+
+```text
+failed to bundle project `timeout: global`
+```
+
+这属于安装包工具下载阶段，不影响 `--no-bundle` 生成桌面 EXE，也不影响桌面便携包发布。
 
 ## Rust 命令层
 
@@ -83,8 +130,7 @@ npm run desktop:build
 
 ## 后续计划
 
-- 安装 Rust 后完成 `desktop:build` 原生验证。
-- 增加应用图标和 Windows 安装器元数据。
+- 继续完善 Windows 安装器元数据和 NSIS 缓存方案。
 - 接入 Tauri updater，使用 GitHub/Gitee Release 分发签名更新包。
 - 评估 Windows 代码签名证书，降低浏览器和系统的未知软件提示。
 - 移动端另开 Capacitor/Tauri Mobile 方案，复用共享前端和筛选核心。
