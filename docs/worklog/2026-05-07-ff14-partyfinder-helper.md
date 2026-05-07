@@ -197,3 +197,10 @@
 - `v0.1.1` 验证：
   - `npm run release:check`：通过，生成 `risingstones-partyfinder-helper-v0.1.1-win-x64.zip`。
   - 便携包探针：`/api/version` 返回 `0.1.1`；公开包 manifest 不包含国内镜像配置；未发布 `v0.1.1` 前 GitHub 最新仍为 `v0.1.0`。
+- `v0.1.1` 发布收尾：
+  - 已提交 `发布 0.1.1 脱敏更新包`，并推送 `main` 到 `origin` 与 `gitee`。
+  - 已推送 `v0.1.1` 标签到 `origin` 与 `gitee`。
+  - GitHub Release workflow 已成功生成 `v0.1.1` Release，并上传 `risingstones-partyfinder-helper-v0.1.1-win-x64.zip`。
+  - GitHub Release 资产 SHA256：`ce90394e52af15887474b95fd94778960f9f15b444944cb42f99a3104e6f6175`。
+  - 国内镜像 Release 脚本已就绪，但用户误贴过的旧令牌不得使用；等待用户撤销旧令牌并在发布机本地配置新令牌后再执行 `npm run release:gitee`。
+- 结束：当前轮完成公开源码脱敏、国内镜像本机配置化、首次进入自动更新检查、`v0.1.1` 双远端源码和标签推送，以及 GitHub Release 验证。遗留风险是旧 `v0.1.0` Release/历史提交可能仍包含旧国内镜像信息；是否删除旧 Release、删除旧标签或重写历史，需要用户明确确认后单独处理。
