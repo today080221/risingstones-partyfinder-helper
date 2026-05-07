@@ -7,7 +7,7 @@
 ## 当前结论
 
 - `v0.1.2` 已先发布未签名 Node EXE 便携包。
-- `v0.1.3` 桌面便携包改为 Tauri EXE，仍需要签名来降低 SmartScreen 提示。
+- `v0.1.4` 桌面便携包改为 Tauri EXE，仍需要签名来降低 SmartScreen 提示。
 - 后续签名目标优先级：
   1. `RisingStones-PartyFinder-Desktop.exe`
   2. `RisingStones-PartyFinder.exe`
@@ -68,7 +68,7 @@ GitHub Actions 签名：
 
 ## 建议路线
 
-1. 先发布 `v0.1.3` 未签名 Tauri 桌面便携包，确认桌面窗口体验。
+1. 先发布 `v0.1.4` 未签名 Tauri 桌面便携包，确认桌面窗口体验。
 2. 采购或开通代码签名方案。
 3. 本地用 `signtool verify /pa` 验证签名。
 4. 构建脚本增加可选签名步骤：

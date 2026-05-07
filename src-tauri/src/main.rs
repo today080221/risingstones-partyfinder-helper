@@ -496,9 +496,20 @@ fn map_to_json(values: &BTreeMap<String, String>) -> Value {
 
 fn update_repo(provider: &str) -> String {
     if provider == "github" {
-        return OFFICIAL_SOURCE_REPO.to_string();
+        let repo = manifest_update_repo("github");
+        return if repo.is_empty() {
+            OFFICIAL_SOURCE_REPO.to_string()
+        } else {
+            repo
+        };
     }
-    normalize_repo(&std::env::var("RISINGSTONES_UPDATE_GITEE_REPO").unwrap_or_default())
+
+    let env_repo =
+        normalize_repo(&std::env::var("RISINGSTONES_UPDATE_GITEE_REPO").unwrap_or_default());
+    if !env_repo.is_empty() {
+        return env_repo;
+    }
+    manifest_update_repo(provider)
 }
 
 fn normalize_repo(value: &str) -> String {
@@ -517,6 +528,40 @@ fn normalize_repo(value: &str) -> String {
         return format!("{}/{}", parts[0], parts[1].trim_end_matches(".git"));
     }
     String::new()
+}
+
+fn manifest_update_repo(provider: &str) -> String {
+    for path in release_manifest_paths() {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(json) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        let repo = json
+            .get("updateRepositories")
+            .and_then(|value| value.get(provider))
+            .and_then(Value::as_str)
+            .map(normalize_repo)
+            .unwrap_or_default();
+        if !repo.is_empty() {
+            return repo;
+        }
+    }
+    String::new()
+}
+
+fn release_manifest_paths() -> Vec<std::path::PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            paths.push(parent.join("release-manifest.json"));
+        }
+    }
+    if let Ok(current_dir) = std::env::current_dir() {
+        paths.push(current_dir.join("release-manifest.json"));
+    }
+    paths
 }
 
 fn is_repo_part(value: &str) -> bool {

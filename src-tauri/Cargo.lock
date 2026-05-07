@@ -2607,7 +2607,7 @@ dependencies = [
 
 [[package]]
 name = "risingstones-partyfinder-helper"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "chrono",
  "reqwest 0.12.28",

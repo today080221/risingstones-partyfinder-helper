@@ -54,6 +54,7 @@ await fs.writeFile(
       name: packageJson.name,
       version,
       target: "win-x64",
+      runtime: "portable",
       builtAt: new Date().toISOString(),
       nodeRuntime: {
         version: nodeVersion,

@@ -2,6 +2,13 @@
 
 本项目遵循“面向用户说明变化”的轻量变更日志。正式 Release 建议使用 `vX.Y.Z` 标签。
 
+## 0.1.4
+
+- 修复 Tauri 桌面便携版无法读取国内镜像更新源配置的问题。
+- Tauri 桌面便携包的 `release-manifest.json` 现在会写入 `updateRepositories`。
+- GitHub Release workflow 构建 Tauri 桌面便携包时同步注入国内镜像配置。
+- 明确：上传已有 zip 到 Gitee 不会改写客户端内置更新源，发布镜像包前需要先带配置重新构建。
+
 ## 0.1.3
 
 - 新增 Tauri 桌面便携包构建链，产物为解压后直接双击的桌面 EXE。

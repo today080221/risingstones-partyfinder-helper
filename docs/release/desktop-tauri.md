@@ -75,14 +75,14 @@ C:\Users\<User>\.rustup\settings.toml
 当前已通过 `npm run package:desktop:portable` 生成：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.3-desktop-win-x64-portable.zip
-release/risingstones-partyfinder-helper-v0.1.3-desktop-win-x64-portable.zip.sha256
+release/risingstones-partyfinder-helper-v0.1.4-desktop-win-x64-portable.zip
+release/risingstones-partyfinder-helper-v0.1.4-desktop-win-x64-portable.zip.sha256
 ```
 
 SHA256：
 
 ```text
-068F0503630EA768F12254F2E603F1F63DF1DB1DAD20342B5BC15977BCA349D4
+220108F0F4EF2231DC70BC620311B07CFBF42A91567F3EAB32001C28BC65A9C4
 ```
 
 zip 内主程序：
@@ -94,6 +94,8 @@ RisingStones-PartyFinder-Desktop.exe
 短启动验收：主程序可启动并显示窗口标题 `FF14 副本招募筛选器`。
 
 GitHub Release workflow 已接入该构建命令，打 `v*` 标签时会同时生成 Node 便携包和 Tauri 桌面便携包。
+
+桌面便携包会在 zip 根目录写入 `release-manifest.json`。如果发布机设置了 `RISINGSTONES_UPDATE_GITEE_REPO` 或本机 `config/release.local.json`，manifest 会包含国内镜像更新源；Tauri 运行时从 EXE 同目录读取该 manifest，再用于 GeoIP 推荐和更新检查。
 
 ## 安装包状态
 

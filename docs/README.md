@@ -42,6 +42,9 @@
 - `worklog/2026-05-08-tauri-build-run.md`
   Tauri 桌面便携版实机构建、启动验收和 NSIS 打包状态记录。
 
+- `worklog/2026-05-08-gitee-update-source-config.md`
+  国内镜像更新源配置注入与 Tauri 读取修复记录。
+
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。
 

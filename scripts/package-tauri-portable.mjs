@@ -14,6 +14,7 @@ const stageDir = path.join(releaseDir, targetName);
 const zipPath = path.join(releaseDir, `${targetName}.zip`);
 const appExe = path.join(rootDir, "src-tauri", "target", "release", "risingstones-partyfinder-helper.exe");
 const friendlyExeName = "RisingStones-PartyFinder-Desktop.exe";
+const releaseConfig = await readReleaseConfig();
 
 await assertBuiltExecutable();
 await fs.rm(stageDir, { recursive: true, force: true });
@@ -43,7 +44,8 @@ await fs.writeFile(
       target: "desktop-win-x64-portable",
       runtime: "desktop",
       builtAt: new Date().toISOString(),
-      sourceRepository: "https://github.com/today080221/risingstones-partyfinder-helper"
+      sourceRepository: "https://github.com/today080221/risingstones-partyfinder-helper",
+      updateRepositories: releaseConfig.updateRepositories
     },
     null,
     2
@@ -79,6 +81,33 @@ async function copyOptionalPath(from, to) {
   } else {
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.copyFile(source, target);
+  }
+}
+
+async function readReleaseConfig() {
+  const localConfig = await readOptionalJson(path.join(rootDir, "config", "release.local.json"));
+  const githubRepo =
+    normalizeRepo(process.env.RISINGSTONES_UPDATE_GITHUB_REPO) ||
+    normalizeRepo(localConfig?.updateRepositories?.github) ||
+    "today080221/risingstones-partyfinder-helper";
+  const giteeRepo =
+    normalizeRepo(process.env.RISINGSTONES_UPDATE_GITEE_REPO) ||
+    normalizeRepo(localConfig?.updateRepositories?.gitee) ||
+    "";
+
+  return {
+    updateRepositories: {
+      github: githubRepo,
+      ...(giteeRepo ? { gitee: giteeRepo } : {})
+    }
+  };
+}
+
+async function readOptionalJson(target) {
+  try {
+    return JSON.parse(await fs.readFile(target, "utf8"));
+  } catch {
+    return null;
   }
 }
 
@@ -134,6 +163,25 @@ function runPowerShell(command) {
 
 function psQuote(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function normalizeRepo(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value.trim().replace(/\.git$/, "");
+  if (!trimmed) {
+    return "";
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const [owner, repo] = url.pathname.split("/").filter(Boolean);
+    return owner && repo ? `${owner}/${repo.replace(/\.git$/, "")}` : "";
+  } catch {
+    return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed) ? trimmed : "";
+  }
 }
 
 async function exists(target) {
