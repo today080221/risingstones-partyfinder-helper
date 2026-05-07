@@ -68,6 +68,24 @@ release/risingstones-partyfinder-helper-v0.1.3-desktop-win-x64-portable.zip.sha2
 
 - 结束状态：Tauri 桌面便携版构建链已经可用，本机已产出并启动验证 `0.1.3` 桌面便携包。
 - 后续建议：
-  - 发版时上传 `0.1.3` 桌面便携 zip 和 `.sha256`。
+  - 后续发版继续同时上传桌面便携 zip、备用 Node 便携 zip 和各自 `.sha256`。
   - 单独处理 NSIS 工具缓存或安装器构建环境。
   - 代码签名证书就绪后，将签名步骤接入桌面便携包和安装包发布链。
+
+## Release Result
+
+- 已提交 `发布 0.1.3 Tauri 桌面便携版`，并推送 `main` 到 GitHub 主仓库和国内镜像 remote。
+- 已推送 `v0.1.3` 标签到 GitHub 主仓库和国内镜像 remote。
+- GitHub Release workflow：通过。
+  - Run ID：`25513600285`
+  - Release URL：`https://github.com/today080221/risingstones-partyfinder-helper/releases/tag/v0.1.3`
+- GitHub CI：通过。
+  - Run ID：`25513580466`
+- GitHub Release 资产：
+  - `risingstones-partyfinder-helper-v0.1.3-desktop-win-x64-portable.zip`
+  - `risingstones-partyfinder-helper-v0.1.3-desktop-win-x64-portable.zip.sha256`
+  - `risingstones-partyfinder-helper-v0.1.3-win-x64.zip`
+  - `risingstones-partyfinder-helper-v0.1.3-win-x64.zip.sha256`
+- GitHub Actions 提醒：
+  - `actions/checkout@v4`、`actions/setup-node@v4`、`actions/upload-artifact@v4` 当前有 Node.js 20 deprecation notice，需要后续维护。
+  - Windows runner 提示 `windows-2025` 将被重定向到 `windows-2025-vs2026`，本轮不影响构建。
