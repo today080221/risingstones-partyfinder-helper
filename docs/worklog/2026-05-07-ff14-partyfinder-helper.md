@@ -193,3 +193,7 @@
   - 公开便携包探针：未配置国内镜像时，`/api/geoip` 回退 GitHub，GitHub 更新检查返回 `v0.1.0`，国内镜像节点返回未配置。
   - 镜像注入探针：使用临时公开测试仓库验证 `RISINGSTONES_UPDATE_GITEE_REPO` 可写入 manifest，并且国内镜像更新检查可读取 Release。
   - 已重新生成干净公开包，`release-manifest.json` 只包含 GitHub 官方源码库。
+- 版本处理：为了让公开下载包不再携带旧国内镜像地址，本轮将发布 `v0.1.1`；旧 `v0.1.0` 是否删除 Release 或重写 Git 历史，需用户确认后单独执行。
+- `v0.1.1` 验证：
+  - `npm run release:check`：通过，生成 `risingstones-partyfinder-helper-v0.1.1-win-x64.zip`。
+  - 便携包探针：`/api/version` 返回 `0.1.1`；公开包 manifest 不包含国内镜像配置；未发布 `v0.1.1` 前 GitHub 最新仍为 `v0.1.0`。
