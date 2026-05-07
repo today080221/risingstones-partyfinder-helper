@@ -27,6 +27,8 @@ jobs:
         run: npm ci
 
       - name: Build portable package
+        env:
+          RISINGSTONES_UPDATE_GITEE_REPO: ${{ secrets.RISINGSTONES_UPDATE_GITEE_REPO }}
         run: npm run release:check
 
       - name: Upload artifact

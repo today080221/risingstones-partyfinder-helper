@@ -130,12 +130,12 @@
 - 需求对齐：
   - 做第一版安全更新检查：支持 GitHub/Gitee Release 查询，展示最新版本、发布页和附件下载入口。
   - 支持“启动时检查更新”，但不静默替换本地文件，不自动执行下载包。
-  - 更新源仓库路径由用户填写 `owner/repo`，便于项目尚未推送远端前保持可配置。
+  - 初版曾允许用户填写通用仓库路径，后续已收敛为固定官方源码库和本机注入的国内镜像节点。
 - 实现：
   - 新增 `/api/version`，返回当前版本、构建时间、运行形态和平台。
-  - 新增 `/api/update/check`，按 `provider=github|gitee` 与 `repo=owner/repo` 读取最新 Release。
-  - 前端侧栏新增“更新检查”面板，支持更新源、仓库路径、启动时检查、检查结果和下载/发布页链接。
-  - 本地 UI 状态持久化新增 `updateProvider`、`updateRepo`、`autoCheckUpdates`。
+  - 新增 `/api/update/check`，读取 GitHub/国内镜像最新 Release。
+  - 前端侧栏新增“更新检查”面板，支持更新源、启动时检查、检查结果和下载/发布页链接。
+  - 本地 UI 状态持久化新增 `updateProvider`、`autoCheckUpdates`。
   - `ROADMAP.md` 调整为第一版已完成，后续保留 release manifest、校验文件、签名和半自动替换评估。
 - 验证：
   - `npm run build`：通过，TypeScript 与 Vite production build 成功。
@@ -146,25 +146,50 @@
 
 ## Follow-up: Release Status Lights And Dual Remotes
 
-- 开始：用户已建立远端仓库，要求更新源使用本项目 GitHub 主仓库 `today080221/risingstones-partyfinder-helper`，国内镜像使用 Gitee `jianwen1126/risingstones-partyfinder-helper`；每次推送同时推两个 remote；前端刷新时自动检查 Release 状态并在状态区下方显示绿/黄/红灯。
+- 开始：用户已建立远端仓库，要求更新源使用本项目 GitHub 主仓库 `today080221/risingstones-partyfinder-helper`，国内镜像使用本机配置的 Gitee remote；每次推送同时推两个 remote；前端刷新时自动检查 Release 状态并在状态区下方显示绿/黄/红灯。
 - 需求对齐：
-  - GitHub 作为主发布源，Gitee 作为国内下载节点。
-  - 加载前端时做一次 GeoIP 检测：中国大陆用户或检测失败默认 Gitee，海外用户推荐 GitHub。
+  - GitHub 作为主发布源，国内镜像作为国内下载节点。
+  - 加载前端时做一次 GeoIP 检测：中国大陆用户或检测失败默认国内镜像，海外用户推荐 GitHub。
   - 绿灯表示当前版本与远端 Release 对齐；黄灯表示有更新但没有跨重大版本；红灯表示跨重大版本落后，建议直接更新。
   - 更新检查仍然只展示发布页和下载入口，不静默覆盖本地文件。
   - Harness 维护规则记录为：提交和版本标签同时推送 `origin` 与 `gitee`。
 - 实现：
-  - 新增 `src/config.ts` 固定 GitHub/Gitee 仓库路径和默认 Gitee 下载节点。
-  - 新增 `/api/geoip`，通过公开 GeoIP 服务检测当前出口地区，失败时回退 Gitee。
+  - 新增 `src/config.ts` 固定 GitHub 官方源码库、下载节点显示名和默认国内镜像下载节点。
+  - 新增 `/api/geoip`，通过公开 GeoIP 服务检测当前出口地区，失败时回退国内镜像。
   - 前端更新面板改为“下载节点”选择器，支持 IP 自动推荐；刷新页面时自动检查当前节点 Release。
   - 结果状态区下方新增更新状态灯，并按版本差异显示绿/黄/红状态。
   - 更新检查在远端 Release 尚未创建时，会回退读取最新 Git tag 作为版本对齐依据；GitHub Release 创建后优先展示 Release 附件。
   - 更新 `docs/collaboration/harness-engineering.md` 记录双 remote 推送和 Release 维护规则。
 - 验证：
   - `npm run release:check`：通过，包含单测、前端构建、后端打包和便携包生成。
-  - 便携包探针：使用包内 `runtime/node.exe` 启动后，`/api/health`、`/api/version`、`/api/geoip` 与页面标题检查通过；当前 GeoIP 推荐节点为 Gitee。
+  - 便携包探针：使用包内 `runtime/node.exe` 启动后，`/api/health`、`/api/version`、`/api/geoip` 与页面标题检查通过；当前 GeoIP 推荐节点为国内镜像。
 - 发布验证：
   - 已推送 `main` 到 GitHub `origin` 与 Gitee `gitee`。
   - 已推送 `v0.1.0` 标签到 GitHub `origin` 与 Gitee `gitee`。
   - GitHub Release workflow 成功完成，并上传 `risingstones-partyfinder-helper-v0.1.0-win-x64.zip`。
-  - 本地更新检查探针：GitHub 主仓库与 Gitee 镜像均返回 `latest=v0.1.0`、`isNewer=false`。
+  - 本地更新检查探针：GitHub 主仓库与当时本机配置的国内镜像均返回 `latest=v0.1.0`、`isNewer=false`。
+
+## Follow-up: Private Mirror Configuration
+
+- 开始：用户确认 Gitee 也应打 Release，并要求隐藏国内仓库地址，因为地址包含个人信息；公开资料只保留 GitHub 官方源码库。同时要求进入前端时自动刷新更新状态，第一次不需要手动点击。
+- 需求对齐：
+  - 公开源码、README 和 docs 不写入国内镜像真实 URL 或 owner/repo。
+  - GitHub 官方源码库仍保留为公开参考。
+  - 国内镜像仓库地址和 Gitee token 作为发布机本地敏感配置管理，通过环境变量或未提交配置文件注入。
+  - 前端在 GeoIP 判断完成后自动执行一次更新检查，避免首次进入还要手动点击。
+  - Gitee Release 需要单独创建并上传同一个 Windows 便携包；如果缺少 token，先提供本地脚本和配置说明，等待用户在开发机配置。
+- 实现：
+  - `src/config.ts` 只保留 GitHub 官方源码库和下载节点显示名称，不再硬编码国内镜像仓库。
+  - `/api/update/check` 不再接收或返回仓库路径；国内镜像 repo 从 `RISINGSTONES_UPDATE_GITEE_REPO`、便携包 `release-manifest.json` 或本地未提交配置读取。
+  - `scripts/build-portable.mjs` 支持读取 `config/release.local.json` 或环境变量，把私有镜像配置注入便携包 manifest。
+  - 新增 `scripts/publish-gitee-release.mjs` 与 `npm run release:gitee`，从本机 `GITEE_ACCESS_TOKEN` 和 `RISINGSTONES_UPDATE_GITEE_REPO` 创建/复用 Gitee Release 并上传 zip。
+  - `.gitignore` 忽略 `config/release.local.json`，仓库只提交 `config/release.local.example.json` 占位模板。
+  - 前端自动检查逻辑改为等待 GeoIP 完成后再触发，避免首次进入时节点尚未推荐完成。
+  - GitHub Release workflow 支持通过仓库 Secret `RISINGSTONES_UPDATE_GITEE_REPO` 向便携包 manifest 注入国内镜像节点。
+  - GeoIP 推荐逻辑在未配置国内镜像时自动回退 GitHub，避免公开包首次进入就显示国内镜像未配置错误。
+- 安全记录：用户在聊天中误贴 Gitee 个人令牌；本轮不使用该令牌、不写入命令或文件，要求用户撤销并重新生成，只通过本机环境变量或本地密钥管理器配置新令牌。
+- 验证：
+  - `npm run release:check`：通过，包含单测、前端构建、后端打包和便携包生成。
+  - 公开便携包探针：未配置国内镜像时，`/api/geoip` 回退 GitHub，GitHub 更新检查返回 `v0.1.0`，国内镜像节点返回未配置。
+  - 镜像注入探针：使用临时公开测试仓库验证 `RISINGSTONES_UPDATE_GITEE_REPO` 可写入 manifest，并且国内镜像更新检查可读取 Release。
+  - 已重新生成干净公开包，`release-manifest.json` 只包含 GitHub 官方源码库。

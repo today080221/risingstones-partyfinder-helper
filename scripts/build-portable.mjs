@@ -16,6 +16,7 @@ const appDir = path.join(stageDir, "app");
 const runtimeDir = path.join(stageDir, "runtime");
 const nodeVersion = normalizeNodeVersion(process.env.PORTABLE_NODE_VERSION ?? process.version);
 const nodeRuntime = await prepareNodeRuntime(nodeVersion);
+const releaseConfig = await readReleaseConfig();
 
 await fs.rm(stageDir, { recursive: true, force: true });
 await fs.rm(zipPath, { force: true });
@@ -55,7 +56,8 @@ await fs.writeFile(
         version: nodeVersion,
         source: nodeRuntime.source,
         licenseIncluded: Boolean(nodeRuntime.licensePath)
-      }
+      },
+      updateRepositories: releaseConfig.updateRepositories
     },
     null,
     2
@@ -66,6 +68,33 @@ await fs.writeFile(
 await compressStage();
 
 console.log(`Portable package created: ${zipPath}`);
+
+async function readReleaseConfig() {
+  const localConfig = await readOptionalJson(path.join(rootDir, "config", "release.local.json"));
+  const githubRepo =
+    normalizeRepo(process.env.RISINGSTONES_UPDATE_GITHUB_REPO) ||
+    normalizeRepo(localConfig?.updateRepositories?.github) ||
+    "today080221/risingstones-partyfinder-helper";
+  const giteeRepo =
+    normalizeRepo(process.env.RISINGSTONES_UPDATE_GITEE_REPO) ||
+    normalizeRepo(localConfig?.updateRepositories?.gitee) ||
+    "";
+
+  return {
+    updateRepositories: {
+      github: githubRepo,
+      ...(giteeRepo ? { gitee: giteeRepo } : {})
+    }
+  };
+}
+
+async function readOptionalJson(target) {
+  try {
+    return JSON.parse(await fs.readFile(target, "utf8"));
+  } catch {
+    return null;
+  }
+}
 
 async function prepareNodeRuntime(version) {
   const cacheDir = path.join(rootDir, ".cache", "node-runtime");
@@ -216,6 +245,25 @@ function psQuote(value) {
 
 function normalizeNodeVersion(value) {
   return value.startsWith("v") ? value : `v${value}`;
+}
+
+function normalizeRepo(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value.trim().replace(/\.git$/, "");
+  if (!trimmed) {
+    return "";
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const [owner, repo] = url.pathname.split("/").filter(Boolean);
+    return owner && repo ? `${owner}/${repo.replace(/\.git$/, "")}` : "";
+  } catch {
+    return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed) ? trimmed : "";
+  }
 }
 
 async function exists(target) {

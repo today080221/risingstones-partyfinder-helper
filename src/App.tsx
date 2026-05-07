@@ -19,7 +19,7 @@ import {
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { checkUpdate, fetchAppVersion, fetchGeoIp, fetchMeta, fetchRecruitDetail, fetchRecruits } from "./api";
-import { UPDATE_REPOSITORIES } from "./config";
+import { OFFICIAL_SOURCE_REPO, UPDATE_PROVIDER_LABELS } from "./config";
 import { filterRecruitRows } from "./lib/filters";
 import { FULL_PARTY_POSITIONS, LIGHT_PARTY_POSITIONS, formatJobNames, getOpenPositions } from "./lib/jobs";
 import { describeTimeParse } from "./lib/time";
@@ -70,13 +70,13 @@ export function App() {
   const [officialAlliance, setOfficialAlliance] = useState<"" | AllianceKey>(initialState.officialAlliance);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialState.sidebarCollapsed);
   const [updateProvider, setUpdateProvider] = useState<UpdateProvider>(initialState.updateProvider);
-  const [updateRepo, setUpdateRepo] = useState(initialState.updateRepo || UPDATE_REPOSITORIES[initialState.updateProvider]);
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(initialState.autoCheckUpdates);
   const [autoDetectUpdateProvider, setAutoDetectUpdateProvider] = useState(initialState.autoDetectUpdateProvider);
   const [filters, setFilters] = useState<LocalFilterState>(initialState.filters);
   const [jobSearch, setJobSearch] = useState("");
   const [appVersion, setAppVersion] = useState<AppVersionPayload | null>(null);
   const [geoInfo, setGeoInfo] = useState<GeoIpPayload | null>(null);
+  const [geoResolved, setGeoResolved] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckPayload | null>(null);
   const [updateError, setUpdateError] = useState("");
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
@@ -116,11 +116,13 @@ export function App() {
         if (autoDetectUpdateProvider) {
           applyUpdateProvider(payload.recommendedProvider);
         }
+        setGeoResolved(true);
       })
       .catch(() => {
         if (autoDetectUpdateProvider) {
           applyUpdateProvider("gitee");
         }
+        setGeoResolved(true);
       });
     return () => controller.abort();
   }, [autoDetectUpdateProvider]);
@@ -130,14 +132,14 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!autoCheckUpdates || !updateRepo.trim()) {
+    if (!autoCheckUpdates || (autoDetectUpdateProvider && !geoResolved)) {
       return;
     }
     const timer = window.setTimeout(() => {
       void runUpdateCheck(true);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [autoCheckUpdates, updateProvider, updateRepo]);
+  }, [autoCheckUpdates, autoDetectUpdateProvider, geoResolved, updateProvider]);
 
   useEffect(() => {
     saveUiState({
@@ -150,7 +152,6 @@ export function App() {
       officialAlliance,
       sidebarCollapsed,
       updateProvider,
-      updateRepo,
       autoCheckUpdates,
       autoDetectUpdateProvider,
       filters
@@ -165,7 +166,6 @@ export function App() {
     officialAlliance,
     sidebarCollapsed,
     updateProvider,
-    updateRepo,
     autoCheckUpdates,
     autoDetectUpdateProvider,
     filters
@@ -287,20 +287,11 @@ export function App() {
 
   function applyUpdateProvider(provider: UpdateProvider) {
     setUpdateProvider(provider);
-    setUpdateRepo(UPDATE_REPOSITORIES[provider]);
     setUpdateInfo(null);
     setUpdateError("");
   }
 
   async function runUpdateCheck(silent = false) {
-    const repo = updateRepo.trim();
-    if (!repo) {
-      if (!silent) {
-        setUpdateError("请先填写仓库路径，例如 owner/repo。");
-      }
-      return;
-    }
-
     updateAbortRef.current?.abort();
     const controller = new AbortController();
     updateAbortRef.current = controller;
@@ -308,7 +299,7 @@ export function App() {
     setUpdateError("");
 
     try {
-      const result = await checkUpdate(updateProvider, repo, controller.signal);
+      const result = await checkUpdate(updateProvider, controller.signal);
       setUpdateInfo(result);
     } catch (error) {
       if ((error as Error).name !== "AbortError") {
@@ -581,11 +572,13 @@ export function App() {
                 }}
               >
                 <option value="github">GitHub</option>
-                <option value="gitee">Gitee</option>
+                <option value="gitee">国内镜像</option>
               </select>
             </Field>
-            <Field label="仓库">
-              <div className="inline-value compact-value">{updateRepo}</div>
+            <Field label="节点说明">
+              <div className="inline-value compact-value">
+                {updateProvider === "github" ? "官方源码库" : "国内镜像节点"}
+              </div>
             </Field>
           </div>
           <label className="check-row">
@@ -613,15 +606,17 @@ export function App() {
           {geoInfo && (
             <div className="geo-hint">
               {geoInfo.fallback
-                ? "GeoIP 检测失败，默认使用 Gitee。"
-                : `${geoInfo.countryCode || "未知地区"}，推荐 ${geoInfo.recommendedProvider === "gitee" ? "Gitee" : "GitHub"}`}
-            </div>
-          )}
+                ? `GeoIP 检测失败，默认使用${geoInfo.recommendedProvider === "gitee" ? "国内镜像" : "GitHub"}。`
+                : `${geoInfo.countryCode || "未知地区"}，推荐 ${
+                    geoInfo.recommendedProvider === "gitee" ? "国内镜像" : "GitHub"
+                  }`}
+              </div>
+            )}
           <button
             type="button"
             className="secondary-button full"
             onClick={() => void runUpdateCheck()}
-            disabled={isCheckingUpdate || !updateRepo.trim()}
+            disabled={isCheckingUpdate}
           >
             {isCheckingUpdate ? <Loader2 size={15} className="spin" /> : <Download size={15} />}
             检查更新
@@ -634,7 +629,7 @@ export function App() {
                 <span>{updateInfo.latestVersion}</span>
               </div>
               <div className="update-meta">
-                {updateInfo.provider} / {updateInfo.repo}
+                {updateInfo.sourceLabel}
                 {updateInfo.publishedAt ? ` / ${updateInfo.publishedAt.slice(0, 10)}` : ""}
               </div>
               <div className="asset-list">
@@ -680,7 +675,6 @@ export function App() {
         <UpdateStatusBanner
           info={updateInfo}
           provider={updateProvider}
-          repo={updateRepo}
           geoInfo={geoInfo}
           isChecking={isCheckingUpdate}
           error={updateError}
@@ -864,7 +858,6 @@ function StatusItem({ label, value }: { label: string; value: string }) {
 function UpdateStatusBanner({
   info,
   provider,
-  repo,
   geoInfo,
   isChecking,
   error,
@@ -872,7 +865,6 @@ function UpdateStatusBanner({
 }: {
   info: UpdateCheckPayload | null;
   provider: UpdateProvider;
-  repo: string;
   geoInfo: GeoIpPayload | null;
   isChecking: boolean;
   error: string;
@@ -889,11 +881,11 @@ function UpdateStatusBanner({
           : isChecking
             ? "正在检查更新"
             : "更新状态未知";
-  const text = getUpdateStatusText(level, info, provider, repo, error);
+  const text = getUpdateStatusText(level, info, provider, error);
   const nodeHint = geoInfo
     ? geoInfo.fallback
-      ? "GeoIP 失败，默认 Gitee"
-      : `${geoInfo.countryCode || "未知地区"} 推荐 ${geoInfo.recommendedProvider === "gitee" ? "Gitee" : "GitHub"}`
+      ? `GeoIP 失败，默认${geoInfo.recommendedProvider === "gitee" ? "国内镜像" : "GitHub"}`
+      : `${geoInfo.countryCode || "未知地区"} 推荐 ${geoInfo.recommendedProvider === "gitee" ? "国内镜像" : "GitHub"}`
     : "正在判断下载节点";
 
   return (
@@ -1258,14 +1250,13 @@ function getUpdateStatusText(
   level: "green" | "yellow" | "red" | "unknown",
   info: UpdateCheckPayload | null,
   provider: UpdateProvider,
-  repo: string,
   error: string
 ): string {
   if (error) {
     return `检查失败：${error}`;
   }
   if (!info) {
-    return `${provider} / ${repo}`;
+    return provider === "github" ? `GitHub / ${OFFICIAL_SOURCE_REPO}` : "国内镜像节点";
   }
   if (level === "green") {
     return `当前 ${info.currentVersion} 与 ${info.provider} 最新 Release ${info.latestVersion} 对齐。`;

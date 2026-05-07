@@ -145,7 +145,7 @@ export interface UpdateAsset {
 
 export interface UpdateCheckPayload {
   provider: UpdateProvider;
-  repo: string;
+  sourceLabel: string;
   currentVersion: string;
   latestVersion: string;
   latestName: string;

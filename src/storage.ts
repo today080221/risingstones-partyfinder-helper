@@ -1,5 +1,5 @@
 import type { AllianceKey, LocalFilterState, UpdateProvider } from "./types";
-import { DEFAULT_UPDATE_PROVIDER, UPDATE_REPOSITORIES } from "./config";
+import { DEFAULT_UPDATE_PROVIDER } from "./config";
 
 export interface SavedUiState {
   fbType: string;
@@ -11,7 +11,6 @@ export interface SavedUiState {
   officialAlliance: "" | AllianceKey;
   sidebarCollapsed: boolean;
   updateProvider: UpdateProvider;
-  updateRepo: string;
   autoCheckUpdates: boolean;
   autoDetectUpdateProvider: boolean;
   filters: LocalFilterState;
@@ -44,7 +43,6 @@ export const defaultUiState: SavedUiState = {
   officialAlliance: "",
   sidebarCollapsed: false,
   updateProvider: DEFAULT_UPDATE_PROVIDER,
-  updateRepo: UPDATE_REPOSITORIES[DEFAULT_UPDATE_PROVIDER],
   autoCheckUpdates: true,
   autoDetectUpdateProvider: true,
   filters: defaultFilters
@@ -63,10 +61,7 @@ export function loadUiState(): SavedUiState {
       ...parsed,
       labels: Array.isArray(parsed.labels) ? parsed.labels : [],
       updateProvider: parsedProvider,
-      updateRepo:
-        typeof parsed.updateRepo === "string" && parsed.updateRepo
-          ? parsed.updateRepo
-          : UPDATE_REPOSITORIES[parsedProvider],
+      autoCheckUpdates: parsed.autoCheckUpdates ?? true,
       filters: {
         ...defaultFilters,
         ...(parsed.filters ?? {})

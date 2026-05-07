@@ -21,11 +21,11 @@
 ## Remote And Release Maintenance
 
 - GitHub 主仓库：`https://github.com/today080221/risingstones-partyfinder-helper`。
-- Gitee 国内镜像：`https://gitee.com/jianwen1126/risingstones-partyfinder-helper`。
+- 国内镜像 remote 名称：`gitee`。真实 URL 属于本机发布敏感配置，不写入公开源码、README 或 docs。
 - 本项目每次发布源码提交时，同时推送 `origin` 和 `gitee` 两个 remote。
 - 每次发布版本标签时，同时推送 GitHub 和 Gitee。
-- GitHub Releases 是主发布源；Gitee Releases 是国内镜像下载节点。
-- 前端更新检查默认根据 GeoIP 推荐下载节点：中国大陆或检测失败走 Gitee，海外走 GitHub。
+- GitHub Releases 是主发布源；国内镜像 Release 由本机配置 `RISINGSTONES_UPDATE_GITEE_REPO` / `GITEE_ACCESS_TOKEN` 或 `config/release.local.json` 发布。
+- 前端更新检查默认根据 GeoIP 推荐下载节点：中国大陆或检测失败走国内镜像，海外走 GitHub。
 
 ## Safety Defaults
 

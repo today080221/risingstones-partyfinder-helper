@@ -43,10 +43,9 @@ export async function fetchRecruitDetail(id: number, signal?: AbortSignal): Prom
 
 export async function checkUpdate(
   provider: UpdateProvider,
-  repo: string,
   signal?: AbortSignal
 ): Promise<UpdateCheckPayload> {
-  const params = new URLSearchParams({ provider, repo });
+  const params = new URLSearchParams({ provider });
   const response = await fetch(`/api/update/check?${params.toString()}`, { signal });
   return readJson<UpdateCheckPayload>(response);
 }

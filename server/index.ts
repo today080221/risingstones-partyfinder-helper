@@ -18,7 +18,7 @@ import type {
   UpdateCheckPayload,
   UpdateProvider
 } from "../src/types";
-import { DEFAULT_UPDATE_PROVIDER, UPDATE_REPOSITORIES } from "../src/config";
+import { DEFAULT_UPDATE_PROVIDER, OFFICIAL_SOURCE_REPO, UPDATE_PROVIDER_LABELS } from "../src/config";
 import { buildOfficialRecruitParams, collectPaginatedRows } from "../src/lib/pagination";
 
 const PORT = Number(process.env.PORT ?? 8797);
@@ -34,6 +34,7 @@ const workspaceStaticDir = path.resolve(moduleDir, "../dist");
 const DEFAULT_STATIC_DIR = fs.existsSync(path.join(bundledStaticDir, "index.html")) ? bundledStaticDir : workspaceStaticDir;
 const STATIC_DIR = process.env.STATIC_DIR ?? DEFAULT_STATIC_DIR;
 const APP_INFO = readAppInfo(moduleDir);
+const UPDATE_REPOSITORIES = readUpdateRepositories(APP_INFO);
 const GEOIP_ENDPOINTS = [
   {
     name: "ipwho.is",
@@ -95,7 +96,7 @@ app.get("/api/geoip", async (req, res) => {
     res.json({
       countryCode: "",
       countryName: "",
-      recommendedProvider: DEFAULT_UPDATE_PROVIDER,
+      recommendedProvider: getFallbackUpdateProvider(),
       source: "fallback",
       fallback: true,
       fetchedAt: new Date().toISOString(),
@@ -107,7 +108,7 @@ app.get("/api/geoip", async (req, res) => {
 app.get("/api/update/check", async (req, res) => {
   const controller = requestAbortController(req);
   const provider = readUpdateProvider(req.query.provider);
-  const repo = normalizeRepo(readQueryString(req.query.repo) || (provider ? UPDATE_REPOSITORIES[provider] : ""));
+  const repo = provider ? UPDATE_REPOSITORIES[provider] : "";
 
   if (!provider) {
     res.status(400).json({ message: "更新源只支持 github 或 gitee。" });
@@ -115,7 +116,7 @@ app.get("/api/update/check", async (req, res) => {
   }
 
   if (!repo) {
-    res.status(400).json({ message: "请填写仓库路径，例如 owner/repo。" });
+    res.status(503).json({ message: `${UPDATE_PROVIDER_LABELS[provider]} 尚未配置发布源。` });
     return;
   }
 
@@ -123,7 +124,7 @@ app.get("/api/update/check", async (req, res) => {
     const release = await fetchLatestRelease(provider, repo, controller.signal);
     const payload: UpdateCheckPayload = {
       provider,
-      repo,
+      sourceLabel: UPDATE_PROVIDER_LABELS[provider],
       currentVersion: APP_INFO.version,
       latestVersion: release.tagName,
       latestName: release.name || release.tagName,
@@ -409,7 +410,7 @@ async function detectGeoIp(signal: AbortSignal) {
       return {
         countryCode,
         countryName,
-        recommendedProvider: countryCode === "CN" ? "gitee" : "github",
+        recommendedProvider: recommendUpdateProvider(countryCode),
         source: endpoint.name,
         fallback: false,
         fetchedAt: new Date().toISOString()
@@ -420,6 +421,14 @@ async function detectGeoIp(signal: AbortSignal) {
   }
 
   throw new Error(errors.join("; ") || "GeoIP 检测失败");
+}
+
+function recommendUpdateProvider(countryCode: string): UpdateProvider {
+  return countryCode === "CN" && UPDATE_REPOSITORIES.gitee ? "gitee" : "github";
+}
+
+function getFallbackUpdateProvider(): UpdateProvider {
+  return UPDATE_REPOSITORIES.gitee ? DEFAULT_UPDATE_PROVIDER : "github";
 }
 
 async function fetchJson(url: string, signal: AbortSignal): Promise<unknown> {
@@ -656,17 +665,29 @@ function sendError(res: express.Response, error: unknown): void {
   res.status(502).json({ message });
 }
 
-function readAppInfo(baseDir: string): { name: string; version: string; builtAt: string; portable: boolean } {
+function readAppInfo(baseDir: string): {
+  name: string;
+  version: string;
+  builtAt: string;
+  portable: boolean;
+  updateRepositories?: Partial<Record<UpdateProvider, string>>;
+} {
   const manifestPath = path.resolve(baseDir, "../release-manifest.json");
   const packagePaths = [path.resolve(baseDir, "../package.json"), path.resolve(process.cwd(), "package.json")];
-  const manifest = readJsonFile<{ name?: string; version?: string; builtAt?: string }>(manifestPath);
+  const manifest = readJsonFile<{
+    name?: string;
+    version?: string;
+    builtAt?: string;
+    updateRepositories?: Partial<Record<UpdateProvider, string>>;
+  }>(manifestPath);
 
   if (manifest?.name && manifest.version) {
     return {
       name: manifest.name,
       version: manifest.version,
       builtAt: manifest.builtAt ?? "",
-      portable: true
+      portable: true,
+      updateRepositories: manifest.updateRepositories
     };
   }
 
@@ -687,6 +708,13 @@ function readAppInfo(baseDir: string): { name: string; version: string; builtAt:
     version: "0.0.0",
     builtAt: process.env.BUILD_TIME ?? "",
     portable: false
+  };
+}
+
+function readUpdateRepositories(appInfo: { updateRepositories?: Partial<Record<UpdateProvider, string>> }) {
+  return {
+    github: normalizeRepo(process.env.RISINGSTONES_UPDATE_GITHUB_REPO ?? appInfo.updateRepositories?.github ?? OFFICIAL_SOURCE_REPO),
+    gitee: normalizeRepo(process.env.RISINGSTONES_UPDATE_GITEE_REPO ?? appInfo.updateRepositories?.gitee ?? "")
   };
 }
 
