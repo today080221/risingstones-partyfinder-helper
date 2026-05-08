@@ -30,11 +30,17 @@
 - `npm run build:portable`：通过，生成 `release/risingstones-partyfinder-helper-v0.1.11-win-x64.zip`。
 - zip manifest 检查：桌面便携包和 Node 便携包版本均为 `0.1.11`，更新源 key 均为 `github,gitee`。
 - Browser 插件回归尝试：浏览器插件初始化超时，未作为通过证据；本次以代码路径、TypeScript 构建和 Tauri release 编译作为主要验证。
+- GitHub Actions：
+  - `Release / v0.1.11`：通过，已发布桌面便携包、Node 便携包和对应 `.sha256`。
+  - `CI / main`：通过。
+- GitHub Release 资产检查：
+  - Release 已创建且不是草稿/预发布。
+  - 资产包含 `risingstones-partyfinder-helper-v0.1.11-desktop-win-x64-portable.zip`、`risingstones-partyfinder-helper-v0.1.11-win-x64.zip` 和两份 `.sha256`。
 - SHA256：
   - Tauri 桌面便携包：`4462605C87719A610E488B19FAD92E681290802E3AA949B6726F77228111F127`
   - Node 便携包：`D4E3D8CAC340686C147783A41EE86F98368CCDFA2E68177E70BA59A18369835D`
 
 ## End
 
-- 完成：`0.1.11` 已修复 Tauri 桌面端“官方详情”无法打开系统默认浏览器的问题，并完成本地测试、构建和双源 manifest 验证。
-- 待发布：创建 `v0.1.11` 标签并推送后，GitHub Release workflow 负责发布公开 Release；国内镜像 Release 资产仍需发布机使用本地令牌执行 `npm run release:gitee` 上传。
+- 完成：`0.1.11` 已修复 Tauri 桌面端“官方详情”无法打开系统默认浏览器的问题，并完成本地测试、构建、双源 manifest 验证、双远端推送和 GitHub Release 发布。
+- 注意：国内镜像 Release 资产仍需发布机使用本地 Gitee 令牌执行 `npm run release:gitee` 上传。
