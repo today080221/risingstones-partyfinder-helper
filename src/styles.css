@@ -479,6 +479,12 @@ button {
   color: #24704e;
 }
 
+.mini-notice.warning {
+  border: 1px solid #e7d08b;
+  background: #fff9e8;
+  color: #7a5a13;
+}
+
 .update-card {
   margin-top: 10px;
   border: 1px solid #d8e2de;
@@ -490,6 +496,11 @@ button {
 .update-card.has-update {
   border-color: #94cdbd;
   background: #f3fbf8;
+}
+
+.update-card.has-warning {
+  border-color: #e4cf8f;
+  background: #fffaf0;
 }
 
 .update-head {

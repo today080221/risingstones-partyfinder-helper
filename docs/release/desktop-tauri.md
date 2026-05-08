@@ -79,8 +79,8 @@ C:\Users\<User>\.rustup\settings.toml
 当前已通过 `npm run package:desktop:portable` 生成：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.8-desktop-win-x64-portable.zip
-release/risingstones-partyfinder-helper-v0.1.8-desktop-win-x64-portable.zip.sha256
+release/risingstones-partyfinder-helper-v0.1.9-desktop-win-x64-portable.zip
+release/risingstones-partyfinder-helper-v0.1.9-desktop-win-x64-portable.zip.sha256
 ```
 
 SHA256：

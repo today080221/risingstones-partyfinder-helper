@@ -27,7 +27,7 @@ import {
   fetchRecruits,
   installUpdate
 } from "./api";
-import { OFFICIAL_SOURCE_REPO, UPDATE_PROVIDER_LABELS } from "./config";
+import { UPDATE_PROVIDER_LABELS } from "./config";
 import { filterRecruitRows } from "./lib/filters";
 import {
   FULL_PARTY_POSITIONS,
@@ -37,6 +37,7 @@ import {
   getOpenPositions
 } from "./lib/jobs";
 import { describeTimeParse } from "./lib/time";
+import { getUpdateLevel, getUpdateStatusLabel, getUpdateStatusText } from "./lib/update-status";
 import { defaultFilters, loadUiState, saveUiState } from "./storage";
 import type {
   AllianceKey,
@@ -214,6 +215,9 @@ export function App() {
     () => selectUpdateAsset(updateInfo?.assets ?? [], appVersion),
     [appVersion, updateInfo]
   );
+  const updatePanelLevel = useMemo(() => getUpdateLevel(updateInfo, false, ""), [updateInfo]);
+  const updatePanelLabel = updateInfo ? getUpdateStatusLabel(updatePanelLevel, updateInfo, false, "") : "";
+  const updatePanelText = updateInfo ? getUpdateStatusText(updatePanelLevel, updateInfo, updateProvider, "") : "";
 
   const groupedJobs = useMemo(() => {
     if (!meta) {
@@ -671,9 +675,9 @@ export function App() {
           </button>
           {updateError && <div className="mini-notice error">{updateError}</div>}
           {updateInfo && (
-            <div className={updateInfo.isNewer ? "update-card has-update" : "update-card"}>
+            <div className={updateInfo.isNewer ? "update-card has-update" : updatePanelLevel === "yellow" ? "update-card has-warning" : "update-card"}>
               <div className="update-head">
-                <strong>{updateInfo.isNewer ? "发现新版本" : "已是最新版本"}</strong>
+                <strong>{updateInfo.isNewer ? "发现新版本" : updatePanelLevel === "yellow" ? updatePanelLabel : "已是最新版本"}</strong>
                 <span>{updateInfo.latestVersion}</span>
               </div>
               <div className="update-meta">
@@ -705,7 +709,9 @@ export function App() {
                   {updateInstallError && <div className="mini-notice error">{updateInstallError}</div>}
                 </div>
               ) : (
-                <div className="mini-notice success">当前客户端已经与最新 Release 对齐。</div>
+                <div className={updatePanelLevel === "yellow" ? "mini-notice warning" : "mini-notice success"}>
+                  {updatePanelLevel === "yellow" ? updatePanelText : "当前客户端已经与最新 Release 对齐。"}
+                </div>
               )}
               <div className="asset-list">
                 {updateInfo.assets.slice(0, 3).map((asset) => (
@@ -945,16 +951,7 @@ function UpdateStatusBanner({
   onCheck: () => void;
 }) {
   const level = getUpdateLevel(info, isChecking, error);
-  const label =
-    level === "green"
-      ? "Release 对齐"
-      : level === "yellow"
-        ? "有可用更新"
-        : level === "red"
-          ? "建议立即更新"
-          : isChecking
-            ? "正在检查更新"
-            : "更新状态未知";
+  const label = getUpdateStatusLabel(level, info, isChecking, error);
   const text = getUpdateStatusText(level, info, provider, error);
   const nodeHint = geoInfo
     ? geoInfo.fallback
@@ -1316,41 +1313,6 @@ function getVersionRuntimeLabel(version: AppVersionPayload): string {
   return "开发模式";
 }
 
-function getUpdateLevel(
-  info: UpdateCheckPayload | null,
-  isChecking: boolean,
-  error: string
-): "green" | "yellow" | "red" | "unknown" {
-  if (isChecking || error || !info) {
-    return "unknown";
-  }
-  if (!info.isNewer) {
-    return "green";
-  }
-  return hasMajorVersionGap(info.currentVersion, info.latestVersion) ? "red" : "yellow";
-}
-
-function getUpdateStatusText(
-  level: "green" | "yellow" | "red" | "unknown",
-  info: UpdateCheckPayload | null,
-  provider: UpdateProvider,
-  error: string
-): string {
-  if (error) {
-    return `检查失败：${error}`;
-  }
-  if (!info) {
-    return provider === "github" ? `GitHub / ${OFFICIAL_SOURCE_REPO}` : "国内镜像节点";
-  }
-  if (level === "green") {
-    return `当前 ${info.currentVersion} 与 ${info.provider} 最新 Release ${info.latestVersion} 对齐。`;
-  }
-  if (level === "red") {
-    return `当前 ${info.currentVersion} 落后到重大版本 ${info.latestVersion}，建议直接更新。`;
-  }
-  return `当前 ${info.currentVersion}，最新 ${info.latestVersion}，可一键下载并更新。`;
-}
-
 function selectUpdateAsset(assets: UpdateAsset[], version: AppVersionPayload | null): UpdateAsset | null {
   if (!assets.length) {
     return null;
@@ -1377,15 +1339,4 @@ function selectUpdateAsset(assets: UpdateAsset[], version: AppVersionPayload | n
   }
 
   return null;
-}
-
-function hasMajorVersionGap(current: string, latest: string): boolean {
-  const currentMajor = parseMajorVersion(current);
-  const latestMajor = parseMajorVersion(latest);
-  return latestMajor !== null && currentMajor !== null && latestMajor > currentMajor;
-}
-
-function parseMajorVersion(value: string): number | null {
-  const match = value.trim().replace(/^v/i, "").match(/^(\d+)/);
-  return match ? Number(match[1]) : null;
 }

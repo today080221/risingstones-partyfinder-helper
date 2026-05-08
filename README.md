@@ -17,7 +17,7 @@
 推荐从 GitHub Releases 下载 Tauri 桌面便携包：
 
 ```text
-risingstones-partyfinder-helper-v0.1.8-desktop-win-x64-portable.zip
+risingstones-partyfinder-helper-v0.1.9-desktop-win-x64-portable.zip
 ```
 
 解压后双击：
@@ -31,7 +31,7 @@ RisingStones-PartyFinder-Desktop.exe
 备用的本地服务便携包仍可使用：
 
 ```text
-risingstones-partyfinder-helper-v0.1.8-win-x64.zip
+risingstones-partyfinder-helper-v0.1.9-win-x64.zip
 ```
 
 解压后双击：
@@ -90,7 +90,7 @@ npm run package:desktop:portable
 产物会生成在：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.8-desktop-win-x64-portable.zip
+release/risingstones-partyfinder-helper-v0.1.9-desktop-win-x64-portable.zip
 ```
 
 安装包构建可继续使用 `npm run desktop:build`，但首次下载 NSIS 工具包时可能受网络影响。详情见 `docs/release/desktop-tauri.md`。
@@ -128,7 +128,7 @@ release/risingstones-partyfinder-helper-v0.1.8-desktop-win-x64-portable.zip
   - 支持可由本机发布配置注入的国内镜像 Releases
   - 加载时根据 GeoIP 推荐下载节点：中国大陆或检测失败默认国内镜像，未配置国内镜像时回退 GitHub
   - 支持启动时检查
-  - 在结果状态下方展示绿/黄/红更新状态灯
+  - 在结果状态下方展示绿/黄/红更新状态灯；所选镜像落后于当前版本时显示黄色“节点待同步”
   - 发现新版本时展示适合当前客户端的更新包
   - 支持用户确认后“一键更新”：下载 zip、退出当前程序、覆盖当前解压目录并重启
 
@@ -155,7 +155,7 @@ npm run build:portable
 产物会生成在：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.8-win-x64.zip
+release/risingstones-partyfinder-helper-v0.1.9-win-x64.zip
 ```
 
 发布包构成和注意事项见：
