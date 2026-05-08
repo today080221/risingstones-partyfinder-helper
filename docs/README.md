@@ -53,6 +53,8 @@
   GitHub 下载包国内镜像未配置的 manifest 差异诊断记录。
 - `worklog/2026-05-08-job-filter-and-release-source.md`
   职业智能筛选优化和 Release 双更新源内置记录。
+- `worklog/2026-05-08-update-download-decode-error.md`
+  一键更新包读取失败的下载链路修复记录。
 
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。

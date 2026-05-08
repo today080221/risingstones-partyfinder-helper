@@ -27,6 +27,9 @@ const OFFICIAL_API_HOME = "https://apiff14risingstones.web.sdo.com/api/home/";
 const PAGE_SIZE = 100;
 const PAGE_DELAY_MS = 180;
 const MAX_PAGES = 80;
+const UPDATE_DOWNLOAD_RETRIES = 3;
+const UPDATE_DOWNLOAD_TIMEOUT_MS = 600_000;
+const UPDATE_DOWNLOAD_TIMEOUT_SECS = 600;
 const OFFICIAL_ORIGIN = "https://ff14risingstones.web.sdo.com";
 const OFFICIAL_REFERER = `${OFFICIAL_ORIGIN}/pc/index.html#/recruit/party`;
 const moduleDir = getModuleDir();
@@ -540,6 +543,7 @@ async function preparePortableUpdate(assetName: string, downloadUrl: string) {
   const zipPath = path.join(updateDir, sanitizeFileName(assetName));
   const extractDir = path.join(updateDir, "extract");
   const scriptPath = path.join(updateDir, "apply-update.ps1");
+  const logPath = path.join(updateDir, "apply-update.log");
 
   await fs.promises.rm(updateDir, { recursive: true, force: true });
   await fs.promises.mkdir(updateDir, { recursive: true });
@@ -551,22 +555,58 @@ async function preparePortableUpdate(assetName: string, downloadUrl: string) {
       zipPath,
       extractDir,
       appRoot,
-      executablePath: process.execPath
+      executablePath: process.execPath,
+      logPath
     }),
     "utf8"
   );
   startPowerShellScript(scriptPath);
 
   return {
-    message: "更新包已下载，程序即将退出并自动重启新版。",
+    message: `更新包已下载，程序即将退出并自动重启新版。若没有自动重启，可查看日志：${logPath}`,
     restart: true,
     assetName
   };
 }
 
 async function downloadUpdateFile(url: string, destination: string) {
+  let systemProxyError: unknown = null;
+  if (process.platform === "win32" && isGithubUpdateUrl(url)) {
+    try {
+      await downloadUpdateFileWithWindowsSystemProxy(url, destination);
+      await assertDownloadedUpdateFile(destination);
+      return;
+    } catch (error) {
+      systemProxyError = error;
+      await fs.promises.rm(destination, { force: true }).catch(() => undefined);
+      // Fall back to Node fetch so machines without Windows PowerShell are still usable.
+    }
+  }
+
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= UPDATE_DOWNLOAD_RETRIES; attempt += 1) {
+    try {
+      await downloadUpdateFileWithFetch(url, destination);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < UPDATE_DOWNLOAD_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+      }
+    }
+  }
+
+  const fallbackMessage = lastError instanceof Error ? lastError.message : String(lastError);
+  const proxyMessage =
+    systemProxyError instanceof Error ? `；系统代理下载失败：${systemProxyError.message}` : systemProxyError ? `；系统代理下载失败：${String(systemProxyError)}` : "";
+  throw new Error(`更新包读取失败：${fallbackMessage}${proxyMessage}`);
+}
+
+async function downloadUpdateFileWithFetch(url: string, destination: string) {
   const response = await fetch(url, {
     headers: {
+      Accept: "application/octet-stream, application/zip, */*",
+      "Accept-Encoding": "identity",
       "User-Agent": "risingstones-partyfinder-helper-updater"
     }
   });
@@ -578,6 +618,67 @@ async function downloadUpdateFile(url: string, destination: string) {
     throw new Error("更新包内容异常，文件过小。");
   }
   await fs.promises.writeFile(destination, buffer);
+}
+
+async function downloadUpdateFileWithWindowsSystemProxy(url: string, destination: string) {
+  const scriptPath = path.join(path.dirname(destination), "download-update.ps1");
+  await fs.promises.writeFile(
+    scriptPath,
+    `$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$downloadUrl = ${psQuote(url)}
+$destination = ${psQuote(destination)}
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$headers = @{
+  'User-Agent' = 'risingstones-partyfinder-helper-updater'
+  'Accept' = 'application/octet-stream, application/zip, */*'
+  'Accept-Encoding' = 'identity'
+}
+Invoke-WebRequest -Uri $downloadUrl -OutFile $destination -Headers $headers -TimeoutSec ${UPDATE_DOWNLOAD_TIMEOUT_SECS} -UseBasicParsing
+`,
+    "utf8"
+  );
+  await runPowerShellScript(scriptPath, UPDATE_DOWNLOAD_TIMEOUT_MS + 15_000);
+}
+
+async function runPowerShellScript(scriptPath: string, timeoutMs: number) {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath], {
+      windowsHide: true
+    });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error("PowerShell 下载超时"));
+    }, timeoutMs);
+    child.stdout?.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      const message = (stderr || stdout || `PowerShell exit ${code}`).trim();
+      reject(new Error(message.slice(0, 500)));
+    });
+  });
+}
+
+async function assertDownloadedUpdateFile(destination: string) {
+  const stat = await fs.promises.stat(destination);
+  if (stat.size < 1024) {
+    throw new Error("更新包内容异常，文件过小。");
+  }
 }
 
 function validateUpdateAsset(assetName: string, downloadUrl: string, runtime: "portable" | "desktop") {
@@ -605,12 +706,22 @@ function isTrustedUpdateUrl(value: string): boolean {
   }
 }
 
+function isGithubUpdateUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return /(^|\.)github\.com$/i.test(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 function createSelfUpdateScript(input: {
   processId: number;
   zipPath: string;
   extractDir: string;
   appRoot: string;
   executablePath: string;
+  logPath: string;
 }) {
   return `$ErrorActionPreference = 'Stop'
 $processId = ${input.processId}
@@ -618,31 +729,52 @@ $zipPath = ${psQuote(input.zipPath)}
 $extractDir = ${psQuote(input.extractDir)}
 $appRoot = ${psQuote(input.appRoot)}
 $executablePath = ${psQuote(input.executablePath)}
+$logPath = ${psQuote(input.logPath)}
 
-try { Wait-Process -Id $processId -Timeout 60 -ErrorAction SilentlyContinue } catch {}
-Start-Sleep -Milliseconds 700
-if (Test-Path -LiteralPath $extractDir) { Remove-Item -LiteralPath $extractDir -Recurse -Force }
-Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
-$payloadDir = $extractDir
-$items = @(Get-ChildItem -LiteralPath $extractDir -Force)
-if ($items.Count -eq 1 -and $items[0].PSIsContainer -and (Test-Path -LiteralPath (Join-Path $items[0].FullName 'release-manifest.json'))) {
-  $payloadDir = $items[0].FullName
+function Write-UpdateLog([string]$message) {
+  $line = ('{0:O} {1}' -f (Get-Date), $message)
+  Add-Content -LiteralPath $logPath -Value $line -Encoding UTF8
 }
-if (!(Test-Path -LiteralPath (Join-Path $payloadDir 'release-manifest.json'))) {
-  throw '更新包缺少 release-manifest.json，已取消覆盖。'
-}
-for ($attempt = 1; $attempt -le 8; $attempt++) {
+
+try {
+  Write-UpdateLog 'update script started'
   try {
-    Get-ChildItem -LiteralPath $payloadDir -Force | ForEach-Object {
-      Copy-Item -LiteralPath $_.FullName -Destination $appRoot -Recurse -Force
-    }
-    break
+    Wait-Process -Id $processId -Timeout 60 -ErrorAction SilentlyContinue
+    Write-UpdateLog ('waited for process ' + $processId)
   } catch {
-    if ($attempt -eq 8) { throw }
-    Start-Sleep -Milliseconds 800
+    Write-UpdateLog ('wait process skipped: ' + $_.Exception.Message)
   }
+  Start-Sleep -Milliseconds 700
+  if (Test-Path -LiteralPath $extractDir) { Remove-Item -LiteralPath $extractDir -Recurse -Force }
+  Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
+  Write-UpdateLog 'zip extracted'
+  $payloadDir = $extractDir
+  $items = @(Get-ChildItem -LiteralPath $extractDir -Force)
+  if ($items.Count -eq 1 -and $items[0].PSIsContainer -and (Test-Path -LiteralPath (Join-Path $items[0].FullName 'release-manifest.json'))) {
+    $payloadDir = $items[0].FullName
+  }
+  if (!(Test-Path -LiteralPath (Join-Path $payloadDir 'release-manifest.json'))) {
+    throw '更新包缺少 release-manifest.json，已取消覆盖。'
+  }
+  for ($attempt = 1; $attempt -le 8; $attempt++) {
+    try {
+      Get-ChildItem -LiteralPath $payloadDir -Force | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $appRoot -Recurse -Force
+      }
+      Write-UpdateLog ('copy completed on attempt ' + $attempt)
+      break
+    } catch {
+      Write-UpdateLog ('copy failed on attempt ' + $attempt + ': ' + $_.Exception.Message)
+      if ($attempt -eq 8) { throw }
+      Start-Sleep -Milliseconds 800
+    }
+  }
+  Start-Process -FilePath $executablePath -WorkingDirectory $appRoot
+  Write-UpdateLog 'restarted application'
+} catch {
+  Write-UpdateLog ('update failed: ' + $_.Exception.Message)
+  throw
 }
-Start-Process -FilePath $executablePath -WorkingDirectory $appRoot
 `;
 }
 

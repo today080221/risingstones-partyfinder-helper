@@ -1,6 +1,6 @@
 {
   "name": "risingstones-partyfinder-helper",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "FF14 国服石之家副本招募本地全量拉取与筛选工具",
   "private": false,
   "license": "MIT",

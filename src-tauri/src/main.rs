@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use chrono::Utc;
-use reqwest::header::{ACCEPT, ORIGIN, REFERER, USER_AGENT};
+use reqwest::header::{ACCEPT, ACCEPT_ENCODING, ORIGIN, REFERER, USER_AGENT};
 use serde_json::{json, Map, Value};
 use std::{
     collections::BTreeMap,
@@ -21,6 +21,8 @@ const OFFICIAL_SOURCE_REPO: &str = "today080221/risingstones-partyfinder-helper"
 const PAGE_SIZE: usize = 100;
 const PAGE_DELAY_MS: u64 = 180;
 const MAX_PAGES: usize = 80;
+const UPDATE_DOWNLOAD_RETRIES: usize = 3;
+const UPDATE_DOWNLOAD_TIMEOUT_SECS: u64 = 600;
 
 #[tauri::command]
 async fn risingstones_version() -> Result<Value, String> {
@@ -183,13 +185,17 @@ async fn risingstones_check_update(provider: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
-async fn risingstones_install_update(asset_name: String, download_url: String) -> Result<Value, String> {
+async fn risingstones_install_update(
+    asset_name: String,
+    download_url: String,
+) -> Result<Value, String> {
     if std::env::consts::OS != "windows" {
         return Err("当前一键更新仅支持 Windows 桌面便携版。".to_string());
     }
 
     validate_update_asset(&asset_name, &download_url, "desktop")?;
-    let executable_path = std::env::current_exe().map_err(|error| format!("读取当前程序路径失败：{error}"))?;
+    let executable_path =
+        std::env::current_exe().map_err(|error| format!("读取当前程序路径失败：{error}"))?;
     let app_root = executable_path
         .parent()
         .map(Path::to_path_buf)
@@ -198,10 +204,12 @@ async fn risingstones_install_update(asset_name: String, download_url: String) -
         return Err("当前目录没有 release-manifest.json，无法确认桌面便携包根目录。".to_string());
     }
 
-    let update_dir = std::env::temp_dir().join(format!("risingstones-update-{}", std::process::id()));
+    let update_dir =
+        std::env::temp_dir().join(format!("risingstones-update-{}", std::process::id()));
     let zip_path = update_dir.join(sanitize_file_name(&asset_name));
     let extract_dir = update_dir.join("extract");
     let script_path = update_dir.join("apply-update.ps1");
+    let log_path = update_dir.join("apply-update.log");
 
     let _ = fs::remove_dir_all(&update_dir);
     fs::create_dir_all(&update_dir).map_err(|error| format!("创建更新临时目录失败：{error}"))?;
@@ -214,6 +222,7 @@ async fn risingstones_install_update(asset_name: String, download_url: String) -
             &extract_dir,
             &app_root,
             &executable_path,
+            &log_path,
         ),
     )
     .map_err(|error| format!("写入更新脚本失败：{error}"))?;
@@ -225,7 +234,7 @@ async fn risingstones_install_update(asset_name: String, download_url: String) -
     });
 
     Ok(json!({
-        "message": "更新包已下载，程序即将退出并自动重启新版。",
+        "message": format!("更新包已下载，程序即将退出并自动重启新版。若没有自动重启，可查看日志：{}", log_path.display()),
         "restart": true,
         "assetName": asset_name
     }))
@@ -247,35 +256,82 @@ fn main() {
 }
 
 async fn download_update_file(download_url: &str, destination: &Path) -> Result<(), String> {
-    let response = http_client()?
+    let mut last_error = String::new();
+    for attempt in 1..=UPDATE_DOWNLOAD_RETRIES {
+        match download_update_file_once(download_url, destination).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                last_error = error;
+                if attempt < UPDATE_DOWNLOAD_RETRIES {
+                    tokio::time::sleep(Duration::from_millis(800 * attempt as u64)).await;
+                }
+            }
+        }
+    }
+    Err(last_error)
+}
+
+async fn download_update_file_once(download_url: &str, destination: &Path) -> Result<(), String> {
+    let response = update_download_client(download_url)?
         .get(download_url)
         .header(USER_AGENT, "risingstones-partyfinder-helper-updater")
+        .header(ACCEPT, "application/octet-stream, application/zip, */*")
+        .header(ACCEPT_ENCODING, "identity")
         .send()
         .await
-        .map_err(|error| format!("更新包下载失败：{error}"))?;
+        .map_err(|error| {
+            if is_github_update_url(download_url) {
+                format!("更新包下载失败：{error}；GitHub 下载已尝试使用当前系统代理设置。")
+            } else {
+                format!("更新包下载失败：{error}")
+            }
+        })?;
     let status = response.status();
     if !status.is_success() {
         return Err(format!("更新包下载失败：HTTP {}", status.as_u16()));
     }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| format!("更新包读取失败：{error}"))?;
+    let bytes = response.bytes().await.map_err(|error| {
+        if is_github_update_url(download_url) {
+            format!("更新包读取失败：{error}；GitHub 下载已尝试使用当前系统代理设置。")
+        } else {
+            format!("更新包读取失败：{error}")
+        }
+    })?;
     if bytes.len() < 1024 {
         return Err("更新包内容异常，文件过小。".to_string());
     }
     fs::write(destination, bytes).map_err(|error| format!("保存更新包失败：{error}"))
 }
 
-fn validate_update_asset(asset_name: &str, download_url: &str, runtime: &str) -> Result<(), String> {
+fn update_download_client(download_url: &str) -> Result<reqwest::Client, String> {
+    let builder =
+        reqwest::Client::builder().timeout(Duration::from_secs(UPDATE_DOWNLOAD_TIMEOUT_SECS));
+    let builder = if is_github_update_url(download_url) {
+        builder
+    } else {
+        builder.no_proxy()
+    };
+    builder
+        .build()
+        .map_err(|error| format!("更新下载客户端初始化失败：{error}"))
+}
+
+fn validate_update_asset(
+    asset_name: &str,
+    download_url: &str,
+    runtime: &str,
+) -> Result<(), String> {
     let lower_name = asset_name.to_ascii_lowercase();
-    if !lower_name.ends_with(".zip") || !lower_name.starts_with("risingstones-partyfinder-helper-v") {
+    if !lower_name.ends_with(".zip") || !lower_name.starts_with("risingstones-partyfinder-helper-v")
+    {
         return Err("只允许安装本项目 Release 中的 zip 更新包。".to_string());
     }
     if runtime == "desktop" && !lower_name.contains("desktop-win-x64-portable") {
         return Err("当前客户端只能安装桌面便携版更新包。".to_string());
     }
-    if runtime == "portable" && (!lower_name.contains("-win-x64.zip") || lower_name.contains("desktop")) {
+    if runtime == "portable"
+        && (!lower_name.contains("-win-x64.zip") || lower_name.contains("desktop"))
+    {
         return Err("当前客户端只能安装 Node 便携版 win-x64 更新包。".to_string());
     }
     if !is_trusted_update_url(download_url) {
@@ -298,12 +354,21 @@ fn is_trusted_update_url(value: &str) -> bool {
         || host.ends_with(".gitee.com")
 }
 
+fn is_github_update_url(value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+    host == "github.com" || host.ends_with(".github.com")
+}
+
 fn create_self_update_script(
     process_id: u32,
     zip_path: &Path,
     extract_dir: &Path,
     app_root: &Path,
     executable_path: &Path,
+    log_path: &Path,
 ) -> String {
     format!(
         r#"$ErrorActionPreference = 'Stop'
@@ -312,37 +377,59 @@ $zipPath = {zip_path}
 $extractDir = {extract_dir}
 $appRoot = {app_root}
 $executablePath = {executable_path}
+$logPath = {log_path}
 
-try {{ Wait-Process -Id $processId -Timeout 60 -ErrorAction SilentlyContinue }} catch {{}}
-Start-Sleep -Milliseconds 700
-if (Test-Path -LiteralPath $extractDir) {{ Remove-Item -LiteralPath $extractDir -Recurse -Force }}
-Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
-$payloadDir = $extractDir
-$items = @(Get-ChildItem -LiteralPath $extractDir -Force)
-if ($items.Count -eq 1 -and $items[0].PSIsContainer -and (Test-Path -LiteralPath (Join-Path $items[0].FullName 'release-manifest.json'))) {{
-  $payloadDir = $items[0].FullName
+function Write-UpdateLog([string]$message) {{
+  $line = ('{{0:O}} {{1}}' -f (Get-Date), $message)
+  Add-Content -LiteralPath $logPath -Value $line -Encoding UTF8
 }}
-if (!(Test-Path -LiteralPath (Join-Path $payloadDir 'release-manifest.json'))) {{
-  throw '更新包缺少 release-manifest.json，已取消覆盖。'
-}}
-for ($attempt = 1; $attempt -le 8; $attempt++) {{
+
+try {{
+  Write-UpdateLog 'update script started'
   try {{
-    Get-ChildItem -LiteralPath $payloadDir -Force | ForEach-Object {{
-      Copy-Item -LiteralPath $_.FullName -Destination $appRoot -Recurse -Force
-    }}
-    break
+    Wait-Process -Id $processId -Timeout 60 -ErrorAction SilentlyContinue
+    Write-UpdateLog ('waited for process ' + $processId)
   }} catch {{
-    if ($attempt -eq 8) {{ throw }}
-    Start-Sleep -Milliseconds 800
+    Write-UpdateLog ('wait process skipped: ' + $_.Exception.Message)
   }}
+  Start-Sleep -Milliseconds 700
+  if (Test-Path -LiteralPath $extractDir) {{ Remove-Item -LiteralPath $extractDir -Recurse -Force }}
+  Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
+  Write-UpdateLog 'zip extracted'
+  $payloadDir = $extractDir
+  $items = @(Get-ChildItem -LiteralPath $extractDir -Force)
+  if ($items.Count -eq 1 -and $items[0].PSIsContainer -and (Test-Path -LiteralPath (Join-Path $items[0].FullName 'release-manifest.json'))) {{
+    $payloadDir = $items[0].FullName
+  }}
+  if (!(Test-Path -LiteralPath (Join-Path $payloadDir 'release-manifest.json'))) {{
+    throw '更新包缺少 release-manifest.json，已取消覆盖。'
+  }}
+  for ($attempt = 1; $attempt -le 8; $attempt++) {{
+    try {{
+      Get-ChildItem -LiteralPath $payloadDir -Force | ForEach-Object {{
+        Copy-Item -LiteralPath $_.FullName -Destination $appRoot -Recurse -Force
+      }}
+      Write-UpdateLog ('copy completed on attempt ' + $attempt)
+      break
+    }} catch {{
+      Write-UpdateLog ('copy failed on attempt ' + $attempt + ': ' + $_.Exception.Message)
+      if ($attempt -eq 8) {{ throw }}
+      Start-Sleep -Milliseconds 800
+    }}
+  }}
+  Start-Process -FilePath $executablePath -WorkingDirectory $appRoot
+  Write-UpdateLog 'restarted application'
+}} catch {{
+  Write-UpdateLog ('update failed: ' + $_.Exception.Message)
+  throw
 }}
-Start-Process -FilePath $executablePath -WorkingDirectory $appRoot
 "#,
         process_id = process_id,
         zip_path = ps_quote_path(zip_path),
         extract_dir = ps_quote_path(extract_dir),
         app_root = ps_quote_path(app_root),
-        executable_path = ps_quote_path(executable_path)
+        executable_path = ps_quote_path(executable_path),
+        log_path = ps_quote_path(log_path)
     )
 }
 
@@ -350,11 +437,7 @@ fn start_powershell_script(script_path: &Path) -> Result<(), String> {
     let script = script_path.to_string_lossy().into_owned();
     let mut command = Command::new("powershell.exe");
     command
-        .args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-        ])
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass"])
         .arg("-File")
         .arg(script)
         .stdin(Stdio::null())
@@ -562,6 +645,7 @@ async fn fetch_json_url(url: &str) -> Result<Value, String> {
 
 fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(25))
         .build()
         .map_err(|error| format!("HTTP 客户端初始化失败：{error}"))
