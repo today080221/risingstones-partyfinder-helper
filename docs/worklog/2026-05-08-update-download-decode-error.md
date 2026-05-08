@@ -43,11 +43,17 @@
 - `npm run package:desktop:portable`：通过，生成 `release/risingstones-partyfinder-helper-v0.1.8-desktop-win-x64-portable.zip`。
 - `npm run build:portable`：通过，生成 `release/risingstones-partyfinder-helper-v0.1.8-win-x64.zip`。
 - zip manifest 检查：Node 便携包和 Tauri 桌面便携包均内置 `github,gitee` 两个更新源 key。
+- GitHub Actions：
+  - `Release / v0.1.8`：通过，已发布桌面便携包、Node 便携包和对应 `.sha256`。
+  - `CI / main`：通过。
+- GitHub Release 回拉验证：
+  - 桌面便携包下载成功，manifest 更新源 key 为 `github,gitee`。
+  - Node 便携包资产已发布；本机回拉大包时网络超时，本地构建包已完成 manifest 双源检查。
 - SHA256：
   - Node 便携包：`66393A46A9175A3132D56CF229920433CF0D0346A4E270C9A99C6F04E0527CA8`
   - Tauri 桌面便携包：`FFC27FB09B21E39ACBE61120833C8AAD4CCA1F409D6CB3A4AC9C1C0443865FF5`
 
 ## End
 
-- 完成：`0.1.8` 已修复更新包读取链路、GitHub 下载系统代理、覆盖脚本日志，并完成两种便携包本机构建验收。
+- 完成：`0.1.8` 已修复更新包读取链路、GitHub 下载系统代理、覆盖脚本日志，并完成两种便携包本机构建验收和 GitHub Release 发布。
 - 注意：已经安装的 `0.1.6` 客户端本身没有这些修复；如果它的一键更新仍因旧下载器/旧覆盖脚本失败，需要手动替换到 `0.1.8` 一次，之后再走新版一键更新链路。
