@@ -214,9 +214,11 @@ async fn risingstones_install_update(
     let _ = fs::remove_dir_all(&update_dir);
     fs::create_dir_all(&update_dir).map_err(|error| format!("创建更新临时目录失败：{error}"))?;
     download_update_file(&download_url, &zip_path).await?;
-    fs::write(
+    seed_update_log(&log_path, "update script prepared")
+        .map_err(|error| format!("写入更新日志失败：{error}"))?;
+    write_powershell_script(
         &script_path,
-        create_self_update_script(
+        &create_self_update_script(
             std::process::id(),
             &zip_path,
             &extract_dir,
@@ -451,6 +453,17 @@ fn start_powershell_script(script_path: &Path) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("启动更新脚本失败：{error}"))
+}
+
+fn write_powershell_script(script_path: &Path, script: &str) -> Result<(), String> {
+    let mut bytes = Vec::with_capacity(script.len() + 3);
+    bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+    bytes.extend_from_slice(script.as_bytes());
+    fs::write(script_path, bytes).map_err(|error| format!("写入更新脚本失败：{error}"))
+}
+
+fn seed_update_log(log_path: &Path, message: &str) -> Result<(), std::io::Error> {
+    fs::write(log_path, format!("{} {}\r\n", now_iso(), message))
 }
 
 fn sanitize_file_name(value: &str) -> String {

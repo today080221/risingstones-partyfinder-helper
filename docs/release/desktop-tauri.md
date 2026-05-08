@@ -79,8 +79,8 @@ C:\Users\<User>\.rustup\settings.toml
 当前已通过 `npm run package:desktop:portable` 生成：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.9-desktop-win-x64-portable.zip
-release/risingstones-partyfinder-helper-v0.1.9-desktop-win-x64-portable.zip.sha256
+release/risingstones-partyfinder-helper-v0.1.10-desktop-win-x64-portable.zip
+release/risingstones-partyfinder-helper-v0.1.10-desktop-win-x64-portable.zip.sha256
 ```
 
 SHA256：
@@ -131,6 +131,8 @@ failed to bundle project `timeout: global`
 `risingstones_install_update` 只允许安装本项目 Release 中的桌面便携版 zip。命令会要求 EXE 同目录存在 `release-manifest.json`，然后下载 zip、生成临时 PowerShell 覆盖脚本、退出当前程序并重启新版。开发目录或没有 manifest 的目录不会执行覆盖更新。
 
 从 `v0.1.8` 起，桌面端 GitHub 更新包下载会读取当前系统代理设置；国内镜像和石之家公开接口保持直接请求。临时覆盖脚本会在系统临时目录的 `risingstones-update-<pid>\apply-update.log` 写入解压、复制和重启日志，便于定位“下载成功但没有自动重启”的问题。
+
+从 `v0.1.10` 起，临时 PowerShell 覆盖脚本以带 UTF-8 BOM 的文件写入，以兼容 Windows PowerShell 5.1 的脚本编码识别，尤其是中文安装路径和中文错误信息。
 
 ## 安全边界
 

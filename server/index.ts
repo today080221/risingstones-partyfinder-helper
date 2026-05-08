@@ -548,7 +548,8 @@ async function preparePortableUpdate(assetName: string, downloadUrl: string) {
   await fs.promises.rm(updateDir, { recursive: true, force: true });
   await fs.promises.mkdir(updateDir, { recursive: true });
   await downloadUpdateFile(downloadUrl, zipPath);
-  await fs.promises.writeFile(
+  await seedUpdateLog(logPath, "update script prepared");
+  await writePowerShellScript(
     scriptPath,
     createSelfUpdateScript({
       processId: process.pid,
@@ -557,8 +558,7 @@ async function preparePortableUpdate(assetName: string, downloadUrl: string) {
       appRoot,
       executablePath: process.execPath,
       logPath
-    }),
-    "utf8"
+    })
   );
   startPowerShellScript(scriptPath);
 
@@ -622,7 +622,7 @@ async function downloadUpdateFileWithFetch(url: string, destination: string) {
 
 async function downloadUpdateFileWithWindowsSystemProxy(url: string, destination: string) {
   const scriptPath = path.join(path.dirname(destination), "download-update.ps1");
-  await fs.promises.writeFile(
+  await writePowerShellScript(
     scriptPath,
     `$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -635,8 +635,7 @@ $headers = @{
   'Accept-Encoding' = 'identity'
 }
 Invoke-WebRequest -Uri $downloadUrl -OutFile $destination -Headers $headers -TimeoutSec ${UPDATE_DOWNLOAD_TIMEOUT_SECS} -UseBasicParsing
-`,
-    "utf8"
+`
   );
   await runPowerShellScript(scriptPath, UPDATE_DOWNLOAD_TIMEOUT_MS + 15_000);
 }
@@ -785,6 +784,14 @@ function startPowerShellScript(scriptPath: string) {
     windowsHide: true
   });
   child.unref();
+}
+
+async function writePowerShellScript(scriptPath: string, script: string) {
+  await fs.promises.writeFile(scriptPath, `\uFEFF${script}`, "utf8");
+}
+
+async function seedUpdateLog(logPath: string, message: string) {
+  await fs.promises.writeFile(logPath, `${new Date().toISOString()} ${message}\r\n`, "utf8");
 }
 
 let updateExitScheduled = false;
