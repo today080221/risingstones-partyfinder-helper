@@ -35,10 +35,18 @@
 - `npm run package:desktop:portable`：通过，生成 `release/risingstones-partyfinder-helper-v0.1.10-desktop-win-x64-portable.zip`。
 - `npm run build:portable`：通过，生成 `release/risingstones-partyfinder-helper-v0.1.10-win-x64.zip`。
 - zip manifest 检查：Node 便携包和 Tauri 桌面便携包版本均为 `0.1.10`，更新源 key 均为 `github,gitee`。
+- GitHub Actions：
+  - `Release / v0.1.10`：通过，已发布桌面便携包、Node 便携包和对应 `.sha256`。
+  - `CI / main`：通过。
+- GitHub Release 资产检查：
+  - Release 已创建且不是草稿/预发布。
+  - 资产包含 `risingstones-partyfinder-helper-v0.1.10-desktop-win-x64-portable.zip`、`risingstones-partyfinder-helper-v0.1.10-win-x64.zip` 和两份 `.sha256`。
 - SHA256：
   - Node 便携包：`A8DEED9020FAA5083D974533EF94F131650EA207E15153A05E332B3E8742B0C8`
   - Tauri 桌面便携包：`A594383EEA4453B49768A2DFDFFBB8CC9B25B0E6CF2E228B6C0C36577741F325`
 
 ## End
 
-- 待补：提交、推送和 GitHub Release 发布验证。
+- 完成：`0.1.10` 已修复 PowerShell 自更新脚本编码问题，并完成本地验证、双远端推送和 GitHub Release 发布。
+- 注意：`0.1.8` / `0.1.9` 的旧自更新器会继续生成无 BOM 脚本，因此需要用户手动解压替换到 `0.1.10` 一次；之后的自更新链路才会使用修复后的脚本写入方式。
+- 国内镜像 Release 资产仍需发布机使用本地 Gitee 令牌执行 `npm run release:gitee` 上传。
