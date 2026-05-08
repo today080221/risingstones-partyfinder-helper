@@ -45,7 +45,13 @@
 - 使用 `RISINGSTONES_REQUIRE_DUAL_UPDATE_SOURCES=true` 构建 `npm run package:desktop:portable`：通过，Tauri 桌面便携包 manifest 同时包含 `github` 和国内镜像键。
 - Tauri 桌面便携 EXE 短启动：进程保持运行，窗口标题为 `FF14 副本招募筛选器`。
 - GitHub Secret：`RISINGSTONES_UPDATE_GITEE_REPO` 已配置。
+- GitHub Actions `Release / v0.1.7`：通过。
+- 从 GitHub `v0.1.7` Release 重新下载并拆包检查：
+  - 桌面便携包 manifest 版本为 `0.1.7`，更新源键包含 `github` 和国内镜像键。
+  - Node 便携包 manifest 版本为 `0.1.7`，更新源键包含 `github` 和国内镜像键。
 
 ## End
 
-- 待补：GitHub Release 和国内镜像 Release 状态。
+- GitHub `v0.1.7` Release 已发布成功，资产包含桌面便携包、Node 便携包和各自 `.sha256`。
+- 本机当前 Codex 会话没有 `GITEE_ACCESS_TOKEN` 环境变量，因此未代为上传国内镜像 Release 资产。
+- 国内镜像发布应在发布机本地设置有效 `GITEE_ACCESS_TOKEN` 后运行 `npm run release:gitee`；建议分别上传桌面便携包和 Node 便携包，确保两个节点资产齐全。
