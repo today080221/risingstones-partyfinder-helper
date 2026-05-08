@@ -49,6 +49,8 @@
   v0.1.5 一键更新、主按钮视觉修复和本机发布脚本加固记录。
 - `worklog/2026-05-08-v0.1.6-tauri-release.md`
   v0.1.6 Tauri 桌面便携包 127.0.0.1 refused 修复和发布记录。
+- `worklog/2026-05-08-github-asset-mirror-diagnosis.md`
+  GitHub 下载包国内镜像未配置的 manifest 差异诊断记录。
 
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。
