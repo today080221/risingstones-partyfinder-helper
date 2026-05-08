@@ -1,6 +1,6 @@
 [package]
 name = "risingstones-partyfinder-helper"
-version = "0.1.6"
+version = "0.1.7"
 description = "FF14 国服石之家副本招募桌面筛选工具"
 authors = ["RisingStones PartyFinder Helper Contributors"]
 license = "MIT"

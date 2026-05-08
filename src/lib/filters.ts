@@ -41,6 +41,7 @@ export function filterRecruitRows(
       meta &&
       !jobCanEnter(filters.selectedJobIds, row.need_job ?? [], meta.jobMeta, {
         row,
+        alliance: filters.alliance,
         noDuplicateJobs: filters.noDuplicateJobs
       })
     ) {

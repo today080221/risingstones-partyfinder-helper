@@ -51,6 +51,8 @@
   v0.1.6 Tauri 桌面便携包 127.0.0.1 refused 修复和发布记录。
 - `worklog/2026-05-08-github-asset-mirror-diagnosis.md`
   GitHub 下载包国内镜像未配置的 manifest 差异诊断记录。
+- `worklog/2026-05-08-job-filter-and-release-source.md`
+  职业智能筛选优化和 Release 双更新源内置记录。
 
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。

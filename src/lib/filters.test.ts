@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { filterRecruitRows } from "./filters";
-import { jobCanEnter, matchesOpenPositions } from "./jobs";
+import { buildJobPickerGroups, jobCanEnter, matchesOpenPositions } from "./jobs";
 import { matchesKeywordFilter, parseKeywordFilter } from "./keywords";
 import { buildOfficialRecruitParams, collectPaginatedRows } from "./pagination";
 import { describeTimeParse, matchesTimeFilter, parseRecruitTime } from "./time";
@@ -13,21 +13,41 @@ const meta: MetaPayload = {
   jobConfig: {},
   jobMeta: {
     jobs: [
+      { id: "1", value: "防护职业", job_type: "职能分类" },
+      { id: "2", value: "战士", job_type: "防护职业" },
       { id: "5", value: "治疗职业", job_type: "职能分类" },
       { id: "10", value: "白魔法师", job_type: "治疗职业" },
       { id: "12", value: "学者", job_type: "治疗职业" },
       { id: "13", value: "贤者", job_type: "治疗职业" },
+      { id: "20", value: "近战职业", job_type: "职能分类" },
+      { id: "21", value: "武僧", job_type: "近战职业" },
+      { id: "22", value: "远程物理职业", job_type: "职能分类" },
+      { id: "23", value: "吟游诗人", job_type: "远程物理职业" },
+      { id: "24", value: "远程魔法职业", job_type: "职能分类" },
+      { id: "25", value: "黑魔法师", job_type: "远程魔法职业" },
       { id: "32", value: "任意职业", job_type: "职能分类" }
     ],
     jobsById: {
+      "1": { id: "1", value: "防护职业", job_type: "职能分类" },
+      "2": { id: "2", value: "战士", job_type: "防护职业" },
       "5": { id: "5", value: "治疗职业", job_type: "职能分类" },
       "10": { id: "10", value: "白魔法师", job_type: "治疗职业" },
       "12": { id: "12", value: "学者", job_type: "治疗职业" },
       "13": { id: "13", value: "贤者", job_type: "治疗职业" },
+      "20": { id: "20", value: "近战职业", job_type: "职能分类" },
+      "21": { id: "21", value: "武僧", job_type: "近战职业" },
+      "22": { id: "22", value: "远程物理职业", job_type: "职能分类" },
+      "23": { id: "23", value: "吟游诗人", job_type: "远程物理职业" },
+      "24": { id: "24", value: "远程魔法职业", job_type: "职能分类" },
+      "25": { id: "25", value: "黑魔法师", job_type: "远程魔法职业" },
       "32": { id: "32", value: "任意职业", job_type: "职能分类" }
     },
     childIdsByCategoryId: {
+      "1": ["2"],
       "5": ["10", "12", "13"],
+      "20": ["21"],
+      "22": ["23"],
+      "24": ["25"],
       "32": []
     }
   },
@@ -91,6 +111,57 @@ describe("job and position filters", () => {
     const row = recruit({ H1: 10, H2: 12, need_job: ["5"] });
     expect(jobCanEnter(["5"], row.need_job, meta.jobMeta, { row, noDuplicateJobs: true })).toBe(true);
     expect(jobCanEnter(["10"], row.need_job, meta.jobMeta, { row, noDuplicateJobs: true })).toBe(false);
+  });
+
+  it("falls back to open tank and healer positions when need jobs are empty", () => {
+    const healerRow = recruit({ H1: 12, H2: 0, need_job: [] });
+    expect(jobCanEnter(["10"], healerRow.need_job, meta.jobMeta, { row: healerRow, noDuplicateJobs: true })).toBe(true);
+    expect(jobCanEnter(["13"], healerRow.need_job, meta.jobMeta, { row: healerRow, noDuplicateJobs: true })).toBe(true);
+
+    const tankRow = recruit({ ST: 0, need_job: [] });
+    expect(jobCanEnter(["2"], tankRow.need_job, meta.jobMeta, { row: tankRow, noDuplicateJobs: true })).toBe(true);
+  });
+
+  it("keeps dps position fallback flexible", () => {
+    const row = recruit({ D1: 0, D2: 15, D3: 16, D4: 17, need_job: [] });
+    expect(jobCanEnter(["21"], row.need_job, meta.jobMeta, { row, noDuplicateJobs: true })).toBe(true);
+    expect(jobCanEnter(["23"], row.need_job, meta.jobMeta, { row, noDuplicateJobs: true })).toBe(true);
+    expect(jobCanEnter(["25"], row.need_job, meta.jobMeta, { row, noDuplicateJobs: true })).toBe(true);
+  });
+
+  it("uses selected alliance when matching job fallback positions", () => {
+    const row = recruit({
+      team_composition: "团队",
+      team_position: {
+        A: { MT: 1, ST: 2, H1: 10, H2: 0, D1: 14, D2: 15, D3: 16, D4: 17 },
+        B: { MT: 1, ST: 2, H1: 10, H2: 12, D1: 14, D2: 15, D3: 16, D4: 17 }
+      },
+      need_job: []
+    });
+    expect(jobCanEnter(["13"], row.need_job, meta.jobMeta, { row, alliance: "A", noDuplicateJobs: true })).toBe(true);
+    expect(jobCanEnter(["13"], row.need_job, meta.jobMeta, { row, alliance: "B", noDuplicateJobs: true })).toBe(false);
+  });
+
+  it("sorts picker groups by smart role order", () => {
+    const groups = buildJobPickerGroups({
+      远程魔法职业: [{ id: "25", value: "黑魔法师", job_type: "远程魔法职业" }],
+      限制职业: [{ id: "99", value: "限制", job_type: "限制职业" }],
+      治疗职业: [{ id: "13", value: "贤者", job_type: "治疗职业" }],
+      远程物理职业: [{ id: "23", value: "吟游诗人", job_type: "远程物理职业" }],
+      职能分类: [{ id: "5", value: "治疗职业", job_type: "职能分类" }],
+      防护职业: [{ id: "2", value: "战士", job_type: "防护职业" }],
+      近战职业: [{ id: "21", value: "武僧", job_type: "近战职业" }],
+      进攻职业: [{ id: "21", value: "武僧", job_type: "近战职业" }]
+    });
+
+    expect(groups.map((group) => group.label)).toEqual([
+      "智能分类",
+      "防护职业（T）",
+      "治疗职业（奶）",
+      "近战职业（近战）",
+      "远程物理职业（远敏）",
+      "远程魔法职业（法系）"
+    ]);
   });
 
   it("detects empty full-party positions", () => {

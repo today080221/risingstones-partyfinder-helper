@@ -86,6 +86,9 @@ async function readReleaseConfig() {
     normalizeRepo(process.env.RISINGSTONES_UPDATE_GITEE_REPO) ||
     normalizeRepo(localConfig?.updateRepositories?.gitee) ||
     "";
+  if (process.env.RISINGSTONES_REQUIRE_DUAL_UPDATE_SOURCES === "true" && !giteeRepo) {
+    throw new Error("Missing Gitee update source while dual update sources are required for release builds.");
+  }
 
   return {
     updateRepositories: {

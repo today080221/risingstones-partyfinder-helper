@@ -29,7 +29,13 @@ import {
 } from "./api";
 import { OFFICIAL_SOURCE_REPO, UPDATE_PROVIDER_LABELS } from "./config";
 import { filterRecruitRows } from "./lib/filters";
-import { FULL_PARTY_POSITIONS, LIGHT_PARTY_POSITIONS, formatJobNames, getOpenPositions } from "./lib/jobs";
+import {
+  FULL_PARTY_POSITIONS,
+  LIGHT_PARTY_POSITIONS,
+  buildJobPickerGroups,
+  formatJobNames,
+  getOpenPositions
+} from "./lib/jobs";
 import { describeTimeParse } from "./lib/time";
 import { defaultFilters, loadUiState, saveUiState } from "./storage";
 import type {
@@ -213,12 +219,7 @@ export function App() {
     if (!meta) {
       return [];
     }
-    return Object.entries(meta.jobConfig)
-      .map(([group, value]) => ({
-        group,
-        jobs: Array.isArray(value) ? value : [value]
-      }))
-      .filter(({ group }) => group !== "限制职业");
+    return buildJobPickerGroups(meta.jobConfig);
   }, [meta]);
 
   const selectedJobs = useMemo(() => {
@@ -546,26 +547,6 @@ export function App() {
             />
             保留无法解析时间的招募
           </label>
-          <Field label="我的职业可进">
-            <JobPicker
-              groups={groupedJobs}
-              selectedIds={filters.selectedJobIds}
-              selectedJobs={selectedJobs}
-              search={jobSearch}
-              disabled={!meta}
-              onSearchChange={setJobSearch}
-              onToggle={toggleJobId}
-              onClear={() => updateFilters({ selectedJobIds: [] })}
-            />
-          </Field>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={filters.noDuplicateJobs}
-              onChange={(event) => updateFilters({ noDuplicateJobs: event.target.checked })}
-            />
-            无重复职业
-          </label>
           {teamComposition === "团队" && (
             <Field label="本地团队">
               <select value={filters.alliance} onChange={(event) => updateFilters({ alliance: event.target.value as AllianceKey })}>
@@ -595,6 +576,26 @@ export function App() {
               ))}
             </div>
           </Field>
+          <Field label="我的职业可进">
+            <JobPicker
+              groups={groupedJobs}
+              selectedIds={filters.selectedJobIds}
+              selectedJobs={selectedJobs}
+              search={jobSearch}
+              disabled={!meta}
+              onSearchChange={setJobSearch}
+              onToggle={toggleJobId}
+              onClear={() => updateFilters({ selectedJobIds: [] })}
+            />
+          </Field>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={filters.noDuplicateJobs}
+              onChange={(event) => updateFilters({ noDuplicateJobs: event.target.checked })}
+            />
+            无重复职业
+          </label>
           <button className="secondary-button full" onClick={resetLocalFilters}>
             <RotateCcw size={15} />
             清空本地筛选
@@ -819,7 +820,7 @@ function JobPicker({
   onToggle,
   onClear
 }: {
-  groups: Array<{ group: string; jobs: JobConfigEntry[] }>;
+  groups: Array<{ group: string; label: string; jobs: JobConfigEntry[] }>;
   selectedIds: string[];
   selectedJobs: JobConfigEntry[];
   search: string;
@@ -830,8 +831,9 @@ function JobPicker({
 }) {
   const normalizedSearch = search.trim().toLowerCase();
   const visibleGroups = groups
-    .map(({ group, jobs }) => ({
+    .map(({ group, label, jobs }) => ({
       group,
+      label,
       jobs: normalizedSearch
         ? jobs.filter((job) => `${job.value} ${job.job_type}`.toLowerCase().includes(normalizedSearch))
         : jobs
@@ -869,10 +871,10 @@ function JobPicker({
       />
 
       <div className="job-group-list">
-        {visibleGroups.map(({ group, jobs }) => (
+        {visibleGroups.map(({ group, label, jobs }) => (
           <section className="job-group" key={group}>
             <div className="job-group-title">
-              <strong>{group}</strong>
+              <strong>{label}</strong>
               <span>{group === "职能分类" ? "选中职能会匹配该类所有职业" : `${jobs.length} 个可选`}</span>
             </div>
             <div className="job-button-grid">

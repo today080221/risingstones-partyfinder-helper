@@ -25,6 +25,7 @@
 - 本项目每次发布源码提交时，同时推送 `origin` 和 `gitee` 两个 remote。
 - 每次发布版本标签时，同时推送 GitHub 和 Gitee。
 - GitHub Releases 是主发布源；国内镜像 Release 由本机配置 `RISINGSTONES_UPDATE_GITEE_REPO` / `GITEE_ACCESS_TOKEN` 或 `config/release.local.json` 发布。
+- 从 `v0.1.7` 起，所有正式 Release 包都应同时内置 GitHub 与国内镜像更新源；GitHub Actions 使用 `RISINGSTONES_UPDATE_GITEE_REPO` Secret 注入国内镜像，发布构建开启 `RISINGSTONES_REQUIRE_DUAL_UPDATE_SOURCES=true` 防止产出单源包。
 - 前端更新检查默认根据 GeoIP 推荐下载节点：中国大陆或检测失败走国内镜像，海外走 GitHub。
 
 ## Safety Defaults

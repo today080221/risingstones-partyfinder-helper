@@ -34,11 +34,13 @@ jobs:
       - name: Build Node portable package
         env:
           RISINGSTONES_UPDATE_GITEE_REPO: ${{ secrets.RISINGSTONES_UPDATE_GITEE_REPO }}
+          RISINGSTONES_REQUIRE_DUAL_UPDATE_SOURCES: "true"
         run: npm run release:check
 
       - name: Build Tauri desktop portable package
         env:
           RISINGSTONES_UPDATE_GITEE_REPO: ${{ secrets.RISINGSTONES_UPDATE_GITEE_REPO }}
+          RISINGSTONES_REQUIRE_DUAL_UPDATE_SOURCES: "true"
         run: npm run package:desktop:portable
 
       - name: Upload artifact
