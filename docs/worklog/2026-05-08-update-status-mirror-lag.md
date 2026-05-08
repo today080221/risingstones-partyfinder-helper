@@ -28,10 +28,18 @@
 - `npm run package:desktop:portable`：通过，生成 `release/risingstones-partyfinder-helper-v0.1.9-desktop-win-x64-portable.zip`。
 - `npm run build:portable`：通过，生成 `release/risingstones-partyfinder-helper-v0.1.9-win-x64.zip`。
 - zip manifest 检查：Node 便携包和 Tauri 桌面便携包版本均为 `0.1.9`，更新源 key 均为 `github,gitee`。
+- GitHub Actions：
+  - `Release / v0.1.9`：通过，已发布桌面便携包、Node 便携包和对应 `.sha256`。
+  - `CI / main`：通过。
+- GitHub Release 资产检查：
+  - Release 已创建且不是草稿/预发布。
+  - 资产包含 `risingstones-partyfinder-helper-v0.1.9-desktop-win-x64-portable.zip`、`risingstones-partyfinder-helper-v0.1.9-win-x64.zip` 和两份 `.sha256`。
+  - 本机回拉 GitHub 桌面 zip 时遇到网络连接中断，未完成远端拆包；本地构建包已完成版本与双源 manifest 检查。
 - SHA256：
   - Node 便携包：`23BAE6D7F21F52B33C93452F00CA67A5308F12CF3C0FF62F86BBB8F31D89A75A`
   - Tauri 桌面便携包：`6DEAEBEED505947393168288137D2841E14B9D46B3D8EFE0E6D50A770E91F763`
 
 ## End
 
-- 待补：提交、推送和 GitHub Release 发布验证。
+- 完成：`0.1.9` 已修复镜像节点滞后时误显示 Release 对齐的问题，并完成本地验证、双远端推送和 GitHub Release 发布。
+- 国内镜像 Release 资产仍需发布机使用本地 Gitee 令牌执行 `npm run release:gitee` 上传。
