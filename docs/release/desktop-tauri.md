@@ -20,7 +20,8 @@ flowchart LR
   React --> Invoke["Tauri invoke"]
   Invoke --> Rust["Rust 命令层"]
   Rust --> Official["石之家公开接口"]
-  React --> OfficialPage["官方详情页"]
+  React --> Opener["Tauri opener"]
+  Opener --> OfficialPage["系统浏览器中的官方详情页"]
 ```
 
 ## 当前命令
@@ -79,14 +80,14 @@ C:\Users\<User>\.rustup\settings.toml
 当前已通过 `npm run package:desktop:portable` 生成：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.10-desktop-win-x64-portable.zip
-release/risingstones-partyfinder-helper-v0.1.10-desktop-win-x64-portable.zip.sha256
+release/risingstones-partyfinder-helper-v0.1.11-desktop-win-x64-portable.zip
+release/risingstones-partyfinder-helper-v0.1.11-desktop-win-x64-portable.zip.sha256
 ```
 
 SHA256：
 
 ```text
-以同目录 `.zip.sha256` 文件为准。
+4462605C87719A610E488B19FAD92E681290802E3AA949B6726F77228111F127
 ```
 
 zip 内主程序：
@@ -134,11 +135,13 @@ failed to bundle project `timeout: global`
 
 从 `v0.1.10` 起，临时 PowerShell 覆盖脚本以带 UTF-8 BOM 的文件写入，以兼容 Windows PowerShell 5.1 的脚本编码识别，尤其是中文安装路径和中文错误信息。
 
+从 `v0.1.11` 起，结果卡片“官方详情”在 Tauri 桌面端通过 `tauri-plugin-opener` 调用系统默认浏览器打开官方详情页；普通浏览器和 Node 便携版仍保持原生新标签页行为。
+
 ## 安全边界
 
 - 不保存账号、Cookie、Token 或官方登录态。
 - 不直接代替账号响应招募。
-- 招募响应仍跳转官方页面或使用官方页 Tampermonkey 手动脚本。
+- 招募响应仍通过系统浏览器跳转官方页面，或使用官方页 Tampermonkey 手动脚本。
 - Gitee 私有镜像地址仍通过本机环境变量或发布配置注入，不写入公开源码。
 
 ## 后续计划

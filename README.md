@@ -17,7 +17,7 @@
 推荐从 GitHub Releases 下载 Tauri 桌面便携包：
 
 ```text
-risingstones-partyfinder-helper-v0.1.10-desktop-win-x64-portable.zip
+risingstones-partyfinder-helper-v0.1.11-desktop-win-x64-portable.zip
 ```
 
 解压后双击：
@@ -31,7 +31,7 @@ RisingStones-PartyFinder-Desktop.exe
 备用的本地服务便携包仍可使用：
 
 ```text
-risingstones-partyfinder-helper-v0.1.10-win-x64.zip
+risingstones-partyfinder-helper-v0.1.11-win-x64.zip
 ```
 
 解压后双击：
@@ -90,7 +90,7 @@ npm run package:desktop:portable
 产物会生成在：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.10-desktop-win-x64-portable.zip
+release/risingstones-partyfinder-helper-v0.1.11-desktop-win-x64-portable.zip
 ```
 
 安装包构建可继续使用 `npm run desktop:build`，但首次下载 NSIS 工具包时可能受网络影响。详情见 `docs/release/desktop-tauri.md`。
@@ -118,10 +118,10 @@ release/risingstones-partyfinder-helper-v0.1.10-desktop-win-x64-portable.zip
   - 副本、进度、攻略、时间
   - 当前队伍构成
   - 需求职业
+  - 官方详情按钮；桌面版会打开系统默认浏览器，网页版会打开新标签页
   - 空位位置
   - 大区/服务器
   - 响应数和剩余时间
-  - 官方详情链接
   - 按需展开队伍详情、招募要求、攻略说明
 - 更新检查：
   - 支持 GitHub Releases
@@ -155,7 +155,7 @@ npm run build:portable
 产物会生成在：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.10-win-x64.zip
+release/risingstones-partyfinder-helper-v0.1.11-win-x64.zip
 ```
 
 发布包构成和注意事项见：

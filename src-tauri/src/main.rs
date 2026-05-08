@@ -244,6 +244,7 @@ async fn risingstones_install_update(
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             risingstones_version,
             risingstones_meta,

@@ -16,7 +16,7 @@ import {
   Square,
   XCircle
 } from "lucide-react";
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   checkUpdate,
@@ -28,6 +28,7 @@ import {
   installUpdate
 } from "./api";
 import { UPDATE_PROVIDER_LABELS } from "./config";
+import { isTauriRuntime, openExternalUrl } from "./lib/external-links";
 import { filterRecruitRows } from "./lib/filters";
 import {
   FULL_PARTY_POSITIONS,
@@ -1021,6 +1022,18 @@ function RecruitCard({
     }
   }
 
+  function handleOfficialDetailClick(event: MouseEvent<HTMLAnchorElement>) {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    event.preventDefault();
+    void openExternalUrl(detailUrl).catch((error) => {
+      console.error("打开官方详情失败", error);
+      window.alert(`打开官方详情失败：${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+
   return (
     <article className="recruit-card">
       <div className="card-main">
@@ -1037,7 +1050,13 @@ function RecruitCard({
               {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               {expanded ? "收起" : "详情"}
             </button>
-            <a href={detailUrl} target="_blank" rel="noreferrer" className="detail-link">
+            <a
+              href={detailUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="detail-link"
+              onClick={handleOfficialDetailClick}
+            >
               官方详情
               <ExternalLink size={14} />
             </a>

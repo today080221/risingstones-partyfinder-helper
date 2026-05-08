@@ -59,6 +59,8 @@
   更新状态在镜像节点落后时误显示对齐的修复记录。
 - `worklog/2026-05-08-powershell-update-script-encoding.md`
   PowerShell 自更新脚本无 BOM 导致覆盖安装不执行的修复记录。
+- `worklog/2026-05-08-tauri-official-detail-opener.md`
+  Tauri 桌面端官方详情外链无法打开系统浏览器的修复记录。
 
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。
