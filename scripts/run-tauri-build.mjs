@@ -49,16 +49,6 @@ if (process.platform === "win32") {
   }
 }
 
-if (isPortableExeBuild) {
-  const npmCli = env.npm_execpath || path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
-  runChecked(process.execPath, [npmCli, "run", "build"], env);
-  const cargoArgs = ["build", "--release", "--manifest-path", path.join("src-tauri", "Cargo.toml")];
-  runChecked("cargo", cargoArgs, env, {
-    shell: process.platform === "win32"
-  });
-  process.exit(0);
-}
-
 const result = spawnSync(process.execPath, [tauriCli, ...tauriArgs], {
   cwd: process.cwd(),
   env,
@@ -76,21 +66,6 @@ function canRun(command, commandArgs, commandEnv) {
     stdio: "ignore"
   });
   return result.status === 0;
-}
-
-function runChecked(command, commandArgs, commandEnv, options = {}) {
-  const result = spawnSync(command, commandArgs, {
-    cwd: process.cwd(),
-    env: commandEnv,
-    stdio: "inherit",
-    shell: Boolean(options.shell)
-  });
-  if (result.error) {
-    throw result.error;
-  }
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
 }
 
 function findVsDevCmd(commandEnv) {
@@ -158,7 +133,6 @@ function writeWindowsPortableBuildCommand(devCmd) {
   fs.mkdirSync(cacheDir, { recursive: true });
   const commandPath = path.join(cacheDir, "run-tauri-portable-build.cmd");
   const cargoConfigScriptPath = path.join(cacheDir, "write-cargo-config.mjs");
-  const npmCli = env.npm_execpath || path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
   fs.writeFileSync(
     cargoConfigScriptPath,
     [
@@ -322,12 +296,8 @@ function writeWindowsPortableBuildCommand(devCmd) {
       "if errorlevel 1 exit /b %errorlevel%",
       `call ${winQuote(path.join(cacheDir, "build-env.cmd"))}`,
       "if errorlevel 1 exit /b %errorlevel%",
-      `${winQuote(process.execPath)} ${winQuote(npmCli)} run build`,
-      "if errorlevel 1 exit /b %errorlevel%",
-      "pushd src-tauri",
-      "cargo build --release",
+      `${winQuote(process.execPath)} ${winQuote(tauriCli)} build --no-bundle`,
       "set BUILD_EXIT=%errorlevel%",
-      "popd",
       `if exist ${winQuote(path.join("src-tauri", ".cargo", "config.toml"))} del /q ${winQuote(path.join("src-tauri", ".cargo", "config.toml"))}`,
       "exit /b %BUILD_EXIT%",
       ""

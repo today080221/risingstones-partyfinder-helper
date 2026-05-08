@@ -51,7 +51,7 @@ npm run package:desktop:portable
 
 `desktop:build` 和 `desktop:build:portable` 通过 `scripts/run-tauri-build.mjs` 启动。该 wrapper 会在 Windows 上自动把 `~/.cargo/bin` 加入 PATH，并通过 `vswhere` 查找 Visual Studio C++ 环境，避免普通 PowerShell 中出现 `cargo metadata ... program not found`。
 
-桌面便携包使用 `--no-bundle` 路径时，wrapper 会在同一个临时 `.cmd` 中加载 `VsDevCmd.bat`、构建前端并直接执行 `cargo build --release`。它还会主动扫描本机 Windows Kits 目录，写入临时链接器 wrapper 和构建环境脚本，补齐 `LIB`、`LIBPATH`、`INCLUDE`，避免 `windows.h`、`OleAut32.lib`、`advapi32.lib` 等 Windows SDK 路径偶发丢失。
+桌面便携包使用 `--no-bundle` 路径时，wrapper 会在同一个临时 `.cmd` 中加载 `VsDevCmd.bat`，主动扫描本机 Windows Kits 目录，写入临时链接器 wrapper 和构建环境脚本，补齐 `LIB`、`LIBPATH`、`INCLUDE`，然后调用 `tauri build --no-bundle`。正式发布包不能用裸 `cargo build --release` 产出，否则会绕过 Tauri CLI 的发布上下文，导致窗口误加载 `devUrl` 并访问 `127.0.0.1:5173`。
 
 ## 本机前置条件
 
@@ -79,8 +79,8 @@ C:\Users\<User>\.rustup\settings.toml
 当前已通过 `npm run package:desktop:portable` 生成：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.5-desktop-win-x64-portable.zip
-release/risingstones-partyfinder-helper-v0.1.5-desktop-win-x64-portable.zip.sha256
+release/risingstones-partyfinder-helper-v0.1.6-desktop-win-x64-portable.zip
+release/risingstones-partyfinder-helper-v0.1.6-desktop-win-x64-portable.zip.sha256
 ```
 
 SHA256：

@@ -113,4 +113,4 @@
 - 下载节点与状态灯：`npm run release:check` 通过；便携包 `/api/geoip` 探针通过，当前环境推荐国内镜像。
 - 首版发布：GitHub 与国内镜像 `main` / `v0.1.0` 标签均已推送；GitHub Release `v0.1.0` 已生成 Windows 便携包附件。
 - 私有镜像配置：公开源码和文档不包含国内镜像真实地址；未配置国内镜像时更新检查回退 GitHub；镜像 repo 可通过本机环境变量或未提交配置注入便携包 manifest。
-- v0.1.5 一键更新：`npm test`、`npm run build`、`npm run build:server`、`npm run build:portable`、`npm run package:desktop:portable` 通过；最终发布候选包均已注入 GitHub 和国内镜像更新源配置，并生成对应 `.sha256` 校验文件。
+- v0.1.6 桌面便携包修复：Tauri 正式包重新走 `tauri build --no-bundle`，短启动验收 URL 为 `http://tauri.localhost/`，不再访问 `127.0.0.1:5173`。
