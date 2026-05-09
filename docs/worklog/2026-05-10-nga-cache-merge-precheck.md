@@ -24,7 +24,7 @@
 
 ## Final QA
 
-- `npm test`：通过，5 个 test file，128/128 tests passed。
+- `npm test`：通过，5 个 test file，129/129 tests passed。
 - `npm run build`：通过，TypeScript 与 Vite production build passed。
 - `cargo check --manifest-path src-tauri/Cargo.toml`：通过。
 - `cargo test --manifest-path src-tauri/Cargo.toml`：通过，10/10 tests passed。
@@ -50,6 +50,9 @@
 - 最新 review 发现：列表 metadata 只有标题变化时，前端合并会优先保留带正文的旧样本，导致新标题被旧样本压掉。
 - 修复：合并时允许本轮列表 metadata 更新标题、更新时间、作者等轻字段，同时保留旧正文、正文复核时间和内容 hash；标题变化会触发单卡更新提示，但不强制打开正文。
 - 回归：`npm test` 128/128 passed，`npm run build` passed。
+- 最新 review 发现：多地区读取时若前面地区耗尽本轮活跃窗口预算，生命周期归档仍可能按全局窗口处理未扫描地区。
+- 修复：生命周期归档新增地区作用域；多地区读取只对本轮实际扫描过的招募板做归档/清理和完整窗口标记。Tauri 侧同时将标题单独变化分类为 metadata update，返回给前端更新卡片但仍不强制打开正文。
+- 回归：`npm test` 129/129 passed，`npm run build` passed，`cargo test --manifest-path src-tauri/Cargo.toml` 10/10 passed。
 
 ## Merge And Release Readiness
 

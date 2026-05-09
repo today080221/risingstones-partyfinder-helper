@@ -844,6 +844,7 @@ export function App() {
     let archivedThisRun = 0;
     let deletedThisRun = 0;
     let collectedSamples = ngaSamples;
+    const scannedBoardUrls = new Set<string>();
 
     if (!isTauriRuntime()) {
       setNgaMessage("浏览器预览仅合并当前页面内存/本机已有 NGA 招募；请使用桌面版读取 NGA。");
@@ -929,6 +930,9 @@ export function App() {
           signal
         );
         const scannedByBoard = Math.min(result.progress.collected || result.samples.length, remaining);
+        if (scannedByBoard > 0) {
+          scannedBoardUrls.add(boardUrl);
+        }
         const reviewedByBoard =
           result.progress.reviewed ?? (result.progress.updated ?? 0) + (result.progress.pendingRefresh ?? 0);
         scannedThisRun += scannedByBoard;
@@ -960,7 +964,8 @@ export function App() {
           activeWindowSize: totalBudget,
           scannedCount: scannedThisRun,
           scannedAt: startedAt,
-          archiveAfterDays: ngaSettings.recentActiveDays
+          archiveAfterDays: ngaSettings.recentActiveDays,
+          scopedBoardUrls: boardUrls.length > 1 ? [...scannedBoardUrls] : undefined
         });
         archivedThisRun = lifecycleResult.archivedCount;
         deletedThisRun = lifecycleResult.deletedCount;

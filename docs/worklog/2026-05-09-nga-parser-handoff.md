@@ -55,7 +55,7 @@
 
 ## Latest Validation
 
-- `npm test`: 128 tests passed.
+- `npm test`: 129 tests passed.
 - `npm run build`: passed.
 - `cargo check --manifest-path src-tauri/Cargo.toml`: passed.
 - `cargo test --manifest-path src-tauri/Cargo.toml`: 10 tests passed.

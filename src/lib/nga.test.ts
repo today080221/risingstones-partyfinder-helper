@@ -1627,6 +1627,43 @@ describe("nga cache refresh", () => {
     expect(result.samples[0].archivedAt).toBe("");
   });
 
+  it("scopes lifecycle archive decisions to boards scanned in the current run", () => {
+    const cnBoard = "https://bbs.nga.cn/thread.php?stid=44366746";
+    const usBoard = "https://bbs.nga.cn/thread.php?stid=30742904";
+    const now = new Date("2026-05-10T00:00:00.000Z");
+    const samples = [
+      sanitizeNgaSample({
+        title: "国服旧招募",
+        body: "缺H2",
+        url: "https://bbs.nga.cn/read.php?tid=123",
+        topicId: "123",
+        sourceBoardUrl: cnBoard,
+        lastBoardSeenAt: "2026-04-20T00:00:00.000Z"
+      }),
+      sanitizeNgaSample({
+        title: "美区旧招募",
+        body: "缺D4",
+        url: "https://bbs.nga.cn/read.php?tid=124",
+        topicId: "124",
+        sourceBoardUrl: usBoard,
+        lastBoardSeenAt: "2026-04-20T00:00:00.000Z"
+      })
+    ];
+
+    const result = applyNgaCacheLifecycle(samples, {
+      activeWindowSize: 500,
+      scannedCount: 500,
+      scannedAt: now,
+      now,
+      archiveAfterDays: 14,
+      scopedBoardUrls: [cnBoard]
+    });
+
+    expect(result.archivedKeys).toEqual(["123"]);
+    expect(result.samples.find((sample) => sample.topicId === "123")?.archivedAt).toBe(now.toISOString());
+    expect(result.samples.find((sample) => sample.topicId === "124")?.archivedAt).toBe("");
+  });
+
   it("can disable automatic archival with a zero archive window", () => {
     const stale = sanitizeNgaSample({
       title: "绝欧固定队招募",

@@ -1904,6 +1904,11 @@ async fn collect_nga_board_samples(
                     stats.reviewed += 1;
                     new_or_changed.push(mark_nga_sample_seen(sample, started_at, scanned, false));
                 }
+                NgaCacheAction::MetadataChanged => {
+                    seen.insert(key);
+                    stats.updated += 1;
+                    checked_metadata.push(mark_nga_sample_seen(sample, started_at, scanned, true));
+                }
                 NgaCacheAction::Refresh => {
                     seen.insert(key);
                     stats.pending_refresh += 1;
@@ -1983,6 +1988,7 @@ async fn collect_nga_board_samples(
 enum NgaCacheAction {
     New,
     Changed,
+    MetadataChanged,
     Refresh,
     Checked,
 }
@@ -2004,6 +2010,9 @@ fn classify_nga_cache_action(
         !updated_at.is_empty() && !cached.updated_at.is_empty() && updated_at != cached.updated_at;
     if title_changed && updated_at_changed {
         return NgaCacheAction::Changed;
+    }
+    if title_changed {
+        return NgaCacheAction::MetadataChanged;
     }
     if sample_has_body
         && !content_hash.is_empty()
@@ -3214,7 +3223,7 @@ mod tests {
         let title_only_changed = json!({"topicId":"1","title":"绝欧固定队招募 7=1 H2","updatedAt":"2026-05-09 19:20","contentHash":"same"});
         assert!(matches!(
             classify_nga_cache_action(&title_only_changed, Some(&cached), 12),
-            NgaCacheAction::Checked
+            NgaCacheAction::MetadataChanged
         ));
 
         let title_and_updated_at_changed = json!({"topicId":"1","title":"绝欧固定队招募 7=1 H2","updatedAt":"2026-05-09 20:20","contentHash":"same"});
