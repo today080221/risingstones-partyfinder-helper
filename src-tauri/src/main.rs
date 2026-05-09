@@ -34,9 +34,12 @@ const NGA_POPUP_WINDOW_PREFIX: &str = "nga-popup";
 const NGA_DEFAULT_URL: &str = "https://bbs.nga.cn/";
 const NGA_RECRUIT_STID_CN: &str = "44366746";
 const NGA_RECRUIT_STID_JP: &str = "42005319";
+const NGA_RECRUIT_STID_EU: &str = "30742918";
+const NGA_RECRUIT_STID_OCE: &str = "30742942";
+const NGA_RECRUIT_STID_US: &str = "30742904";
 const NGA_PROFILE_DIR_NAME: &str = "nga-webview-profile";
 const NGA_SAMPLE_STORE_FILE_NAME: &str = "nga-samples.json";
-const NGA_MIN_REQUEST_INTERVAL_MS: u64 = 1500;
+const NGA_MIN_REQUEST_INTERVAL_MS: u64 = 500;
 const NGA_MAX_REQUEST_INTERVAL_MS: u64 = 15000;
 const NGA_MAX_ITEMS_LIMIT: usize = 1500;
 const NGA_EVAL_TIMEOUT_SECS: u64 = 8;
@@ -183,7 +186,7 @@ async fn risingstones_nga_session_status(app: AppHandle) -> Result<Value, String
         "loginStatus": "unknown",
         "keepLogin": app.get_webview_window(NGA_WINDOW_LABEL).is_some(),
         "dataLocation": nga_profile_dir(&app)?.display().to_string(),
-        "message": "登录状态由 NGA 页面自身显示；本工具不会读取或导出网页登录凭据。",
+        "message": "NGA 页面状态由页面自身显示；本工具只读取页面已渲染的公开招募内容。",
         "autoCollectOnStart": std::env::var("RISINGSTONES_NGA_AUTO_COLLECT_ON_START")
             .map(|value| value == "1")
             .unwrap_or(false)
@@ -216,7 +219,7 @@ async fn risingstones_nga_open_session(
         NGA_WINDOW_LABEL,
         WebviewUrl::External(url.clone()),
     )
-    .title("NGA 招募采集")
+    .title("NGA 招募读取")
     .inner_size(1120.0, 820.0)
     .min_inner_size(920.0, 680.0)
     .user_agent(
@@ -293,9 +296,9 @@ async fn risingstones_nga_open_session(
     if keep_login {
         let data_dir = popup_data_dir
             .clone()
-            .ok_or_else(|| "NGA 本地登录状态目录读取失败。".to_string())?;
+            .ok_or_else(|| "NGA 本机网页状态目录读取失败。".to_string())?;
         fs::create_dir_all(&data_dir)
-            .map_err(|error| format!("NGA 本地登录状态目录创建失败：{error}"))?;
+            .map_err(|error| format!("NGA 本机网页状态目录创建失败：{error}"))?;
         builder = builder.data_directory(data_dir);
     } else {
         builder = builder.incognito(true);
@@ -303,16 +306,44 @@ async fn risingstones_nga_open_session(
 
     let window = builder
         .build()
-        .map_err(|error| format!("NGA 登录窗口打开失败：{error}"))?;
+        .map_err(|error| format!("NGA 窗口打开失败：{error}"))?;
     let _ = window.set_focus();
 
     Ok(json!({
         "available": true,
         "loginStatus": "unknown",
         "keepLogin": keep_login,
-        "dataLocation": if keep_login { nga_profile_dir(&app)?.display().to_string() } else { "临时 WebView 会话，未启用保持登录。".to_string() },
-        "message": "请在 NGA 窗口中自行登录并打开需要采集的招募列表或帖子页面。",
+        "dataLocation": if keep_login { nga_profile_dir(&app)?.display().to_string() } else { "临时本机网页会话，关闭后不保留。".to_string() },
+        "message": "请在 NGA 窗口中打开需要读取的招募列表或帖子页面。",
         "openedUrl": url.to_string()
+    }))
+}
+
+#[tauri::command]
+async fn risingstones_nga_navigate_session(
+    app: AppHandle,
+    start_url: String,
+) -> Result<Value, String> {
+    let url = normalize_nga_url(&start_url)?;
+    if !is_supported_nga_collect_url(&url) {
+        return Err("只能切换到已支持的 NGA 招募板或帖子详情页。".to_string());
+    }
+    let Some(window) = app.get_webview_window(NGA_WINDOW_LABEL) else {
+        return Err("请先打开 NGA 窗口。".to_string());
+    };
+
+    let target = serde_json::to_string(url.as_str())
+        .map_err(|error| format!("NGA 页面地址序列化失败：{error}"))?;
+    window
+        .eval(&format!("location.assign({target});"))
+        .map_err(|error| format!("NGA 页面切换失败：{error}"))?;
+
+    Ok(json!({
+        "opened": true,
+        "allowed": true,
+        "currentUrl": url.to_string(),
+        "openedUrl": url.to_string(),
+        "message": "已切换到 NGA 招募板。"
     }))
 }
 
@@ -323,7 +354,9 @@ async fn risingstones_nga_visible_page_status(app: AppHandle) -> Result<Value, S
             "opened": false,
             "allowed": false,
             "currentUrl": "",
-            "message": "NGA 登录窗口未打开。"
+            "state": "closed",
+            "targetUrl": "",
+            "message": "NGA 窗口未打开。"
         }));
     };
 
@@ -332,16 +365,28 @@ async fn risingstones_nga_visible_page_status(app: AppHandle) -> Result<Value, S
         .map_err(|error| format!("NGA 当前页面地址读取失败：{error}"))?;
     let host_allowed = is_allowed_nga_host(url.host_str().unwrap_or_default());
     let allowed = is_supported_nga_collect_url(&url);
+    let interstitial_target = extract_nga_interstitial_target(&url);
+    let is_interstitial = interstitial_target.is_some();
     Ok(json!({
         "opened": true,
         "allowed": allowed,
         "currentUrl": url.to_string(),
+        "state": if allowed {
+            "ready"
+        } else if is_interstitial {
+            "interstitial"
+        } else {
+            "unsupported"
+        },
+        "targetUrl": interstitial_target.map(|target| target.to_string()).unwrap_or_default(),
         "message": if allowed {
-            "当前位于已支持的 NGA 招募板或帖子详情页，可采集当前可见内容。"
+            "当前位于已支持的 NGA 招募板或帖子详情页，可读取当前可见内容。"
+        } else if is_interstitial {
+            "当前位于继续浏览页；请在 NGA 窗口点继续，回到目标页面后会自动重试。"
         } else if host_allowed {
             "当前是 NGA 页面，但不是已支持的招募板或帖子详情；请打开国服/日服招募板或具体帖子。"
         } else {
-            "当前仍在登录、第三方授权或非 NGA 页面；待回到 NGA 页面后再采集。"
+            "当前不是 NGA 招募页；待回到招募列表或帖子页后再读取。"
         }
     }))
 }
@@ -359,12 +404,12 @@ async fn risingstones_nga_clear_session(app: AppHandle) -> Result<Value, String>
     let mut cleared = false;
     if data_dir.exists() {
         fs::remove_dir_all(&data_dir)
-            .map_err(|error| format!("NGA 本地登录状态清理失败：{error}"))?;
+            .map_err(|error| format!("NGA 本机网页状态清理失败：{error}"))?;
         cleared = true;
     }
 
     Ok(json!({
-        "message": "已清理本应用 NGA WebView profile；不会影响系统浏览器。",
+        "message": "已清理本应用 NGA 本机网页数据；不会影响系统浏览器。",
         "dataLocation": data_dir.display().to_string(),
         "cleared": cleared
     }))
@@ -378,14 +423,14 @@ async fn risingstones_nga_load_samples(app: AppHandle) -> Result<Value, String> 
             "samples": [],
             "count": 0,
             "dataLocation": data_path.display().to_string(),
-            "message": "尚未保存 NGA 样本。"
+            "message": "尚未保存 NGA 招募。"
         }));
     }
 
     let text =
-        fs::read_to_string(&data_path).map_err(|error| format!("NGA 本地样本读取失败：{error}"))?;
+        fs::read_to_string(&data_path).map_err(|error| format!("NGA 本地招募读取失败：{error}"))?;
     let payload: Value = serde_json::from_str(&text)
-        .map_err(|error| format!("NGA 本地样本 JSON 解析失败：{error}"))?;
+        .map_err(|error| format!("NGA 本地招募 JSON 解析失败：{error}"))?;
     let raw_samples = if let Some(samples) = payload.get("samples").and_then(Value::as_array) {
         samples.clone()
     } else if let Some(samples) = payload.as_array() {
@@ -405,7 +450,7 @@ async fn risingstones_nga_load_samples(app: AppHandle) -> Result<Value, String> 
         "samples": samples,
         "count": count,
         "dataLocation": data_path.display().to_string(),
-        "message": format!("已读取 {} 条 NGA 本地样本。", count),
+        "message": format!("已读取 {} 条 NGA 已保存招募。", count),
         "savedAt": saved_at
     }))
 }
@@ -417,7 +462,7 @@ async fn risingstones_nga_save_samples(
 ) -> Result<Value, String> {
     let data_path = nga_sample_store_path(&app)?;
     if let Some(parent) = data_path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("NGA 本地样本目录创建失败：{error}"))?;
+        fs::create_dir_all(parent).map_err(|error| format!("NGA 本地招募目录创建失败：{error}"))?;
     }
     let sanitized = sanitize_nga_samples(samples, NGA_MAX_ITEMS_LIMIT);
     let count = sanitized.len();
@@ -428,14 +473,14 @@ async fn risingstones_nga_save_samples(
         "samples": sanitized
     });
     let text = serde_json::to_string_pretty(&payload)
-        .map_err(|error| format!("NGA 本地样本序列化失败：{error}"))?;
-    fs::write(&data_path, text).map_err(|error| format!("NGA 本地样本保存失败：{error}"))?;
+        .map_err(|error| format!("NGA 本地招募序列化失败：{error}"))?;
+    fs::write(&data_path, text).map_err(|error| format!("NGA 本地招募保存失败：{error}"))?;
 
     Ok(json!({
         "samples": sanitized,
         "count": count,
         "dataLocation": data_path.display().to_string(),
-        "message": format!("已保存 {} 条 NGA 本地样本。", count),
+        "message": format!("已保存 {} 条 NGA 招募。", count),
         "savedAt": saved_at
     }))
 }
@@ -450,13 +495,13 @@ async fn risingstones_nga_cancel_collect(
         "currentUrl": "",
         "collected": 0,
         "maxItems": 0,
-        "message": "已请求停止 NGA 样本采集。",
+        "message": "已请求停止 NGA 读取。",
         "finishedAt": now_iso()
     });
     *state
         .progress
         .lock()
-        .map_err(|_| "NGA 采集状态锁定失败。".to_string())? = progress.clone();
+        .map_err(|_| "NGA 读取状态锁定失败。".to_string())? = progress.clone();
     Ok(progress)
 }
 
@@ -467,7 +512,7 @@ async fn risingstones_nga_collection_progress(
     Ok(state
         .progress
         .lock()
-        .map_err(|_| "NGA 采集状态锁定失败。".to_string())?
+        .map_err(|_| "NGA 读取状态锁定失败。".to_string())?
         .clone())
 }
 
@@ -481,11 +526,14 @@ async fn risingstones_nga_collect_visible_samples(
 ) -> Result<Value, String> {
     let window = app
         .get_webview_window(NGA_WINDOW_LABEL)
-        .ok_or_else(|| "请先打开 NGA 登录窗口。".to_string())?;
+        .ok_or_else(|| "请先打开 NGA 窗口。".to_string())?;
     let current_url = window
         .url()
         .map_err(|error| format!("NGA 当前页面地址读取失败：{error}"))?;
     if !is_supported_nga_collect_url(&current_url) {
+        if extract_nga_interstitial_target(&current_url).is_some() {
+            return Err("当前位于继续浏览页，请在 NGA 窗口点继续后再读取。".to_string());
+        }
         return Err("当前页面不是受支持的 NGA 招募板或帖子详情。".to_string());
     }
 
@@ -502,9 +550,9 @@ async fn risingstones_nga_collect_visible_samples(
             "collected": 0,
             "maxItems": max_items,
             "message": if include_details {
-                format!("等待请求间隔 {}ms 后采集当前页，并逐个打开帖子详情读取正文。", interval)
+                format!("等待请求间隔 {}ms 后读取当前页，并逐个打开帖子详情补齐正文。", interval)
             } else {
-                format!("等待请求间隔 {}ms 后采集当前可见页面。", interval)
+                format!("等待请求间隔 {}ms 后读取当前可见页面。", interval)
             },
             "startedAt": started_at
         }),
@@ -517,7 +565,7 @@ async fn risingstones_nga_collect_visible_samples(
             "currentUrl": current_url.to_string(),
             "collected": 0,
             "maxItems": max_items,
-            "message": "NGA 样本采集已取消。",
+            "message": "NGA 读取已取消。",
             "startedAt": started_at,
             "finishedAt": now_iso()
         });
@@ -525,16 +573,27 @@ async fn risingstones_nga_collect_visible_samples(
         return Ok(json!({
             "samples": [],
             "progress": progress,
-            "warnings": ["采集已取消。"],
+            "warnings": ["读取已取消。"],
             "fetchedAt": now_iso()
         }));
     }
 
-    let raw_samples = eval_nga_samples(&window, max_items)?;
-    let mut samples = sanitize_nga_samples(raw_samples, max_items);
     let mut warnings = Vec::new();
-    let mut was_cancelled = false;
-    if include_details && !samples.is_empty() {
+    let (mut samples, mut was_cancelled) = if is_nga_board_url(&current_url) {
+        collect_nga_board_samples(
+            &window,
+            &state,
+            &current_url,
+            max_items,
+            interval,
+            &started_at,
+        )
+        .await?
+    } else {
+        let raw_samples = eval_nga_samples(&window, max_items)?;
+        (sanitize_nga_samples(raw_samples, max_items), false)
+    };
+    if include_details && !samples.is_empty() && !was_cancelled {
         let detail_result =
             collect_nga_detail_samples(&window, &state, samples, max_items, interval, &started_at)
                 .await?;
@@ -549,25 +608,22 @@ async fn risingstones_nga_collect_visible_samples(
         "completed"
     };
     let message = if samples.is_empty() {
-        "当前页面没有识别到可采集的帖子样本；请确认 NGA 页面已正常加载。".to_string()
+        "当前页面没有识别到可读取的帖子；请确认 NGA 页面已正常加载。".to_string()
     } else if was_cancelled {
         format!(
-            "NGA 详情正文采集已停止，已保留 {} 条白名单样本。",
+            "NGA 详情正文读取已停止，已保留 {} 条招募记录。",
             samples.len()
         )
     } else if include_details {
-        format!(
-            "已从当前可见页面采集 {} 条白名单样本，并尝试补齐帖子正文。",
-            samples.len()
-        )
+        format!("已读取 {} 条招募记录，并尝试补齐帖子正文。", samples.len())
     } else {
-        format!("已从当前可见页面采集 {} 条白名单样本。", samples.len())
+        format!("已读取 {} 条招募记录。", samples.len())
     };
     if samples.is_empty() {
         warnings.push("当前页面没有识别到帖子链接或正文。".to_string());
     }
     if was_cancelled {
-        warnings.push("采集已取消，已返回取消前保留的样本。".to_string());
+        warnings.push("读取已取消，已返回取消前保留的招募记录。".to_string());
     }
     let progress = json!({
         "status": status,
@@ -598,7 +654,7 @@ async fn risingstones_nga_collect_sample_details(
 ) -> Result<Value, String> {
     let window = app
         .get_webview_window(NGA_WINDOW_LABEL)
-        .ok_or_else(|| "请先打开 NGA 登录窗口。".to_string())?;
+        .ok_or_else(|| "请先打开 NGA 窗口。".to_string())?;
     let current_url = window
         .url()
         .map_err(|error| format!("NGA 当前页面地址读取失败：{error}"))?;
@@ -611,7 +667,7 @@ async fn risingstones_nga_collect_sample_details(
         request_interval_ms.clamp(NGA_MIN_REQUEST_INTERVAL_MS, NGA_MAX_REQUEST_INTERVAL_MS);
     let source_samples = sanitize_nga_samples(samples, max_items);
     if source_samples.is_empty() {
-        return Err("没有可补正文的 NGA 样本。".to_string());
+        return Err("没有可补正文的 NGA 招募。".to_string());
     }
 
     state.cancelled.store(false, Ordering::SeqCst);
@@ -623,7 +679,7 @@ async fn risingstones_nga_collect_sample_details(
             "currentUrl": current_url.to_string(),
             "collected": 0,
             "maxItems": source_samples.len(),
-            "message": format!("准备按 {}ms 间隔为已存样本补齐帖子正文。", interval),
+            "message": format!("准备按 {}ms 间隔为已存招募补齐帖子正文。", interval),
             "startedAt": started_at
         }),
     )?;
@@ -671,7 +727,7 @@ async fn risingstones_nga_collect_sample_details(
         "samples": samples,
         "updated": updated,
         "progress": progress,
-        "warnings": if was_cancelled { vec!["采集已取消，已返回取消前保留的样本。".to_string()] } else { Vec::new() },
+        "warnings": if was_cancelled { vec!["读取已取消，已返回取消前保留的招募记录。".to_string()] } else { Vec::new() },
         "fetchedAt": now_iso()
     }))
 }
@@ -777,6 +833,7 @@ fn main() {
             risingstones_geoip,
             risingstones_nga_session_status,
             risingstones_nga_open_session,
+            risingstones_nga_navigate_session,
             risingstones_nga_visible_page_status,
             risingstones_nga_clear_session,
             risingstones_nga_load_samples,
@@ -1371,6 +1428,10 @@ fn normalize_nga_url(value: &str) -> Result<Url, String> {
             .map_err(|error| format!("NGA 默认地址解析失败：{error}"))?;
     }
     let _ = url.set_scheme("https");
+    if let Some(board_url) = canonicalize_nga_board_url(&url) {
+        return Url::parse(&board_url)
+            .map_err(|error| format!("NGA 招募板地址规范化失败：{error}"));
+    }
     Ok(url)
 }
 
@@ -1388,18 +1449,158 @@ fn is_supported_nga_collect_url(url: &Url) -> bool {
     }
 
     let path = url.path().to_ascii_lowercase();
-    let has_tid = url.query_pairs().any(|(key, value)| key == "tid" && !value.is_empty());
-    if path.ends_with("/read.php") || path.ends_with("read.php") {
+    let path_file = path.rsplit('/').next().unwrap_or(path.as_str());
+    let has_tid = url
+        .query_pairs()
+        .any(|(key, value)| key.as_ref().eq_ignore_ascii_case("tid") && !value.is_empty());
+    if path_file == "read.php" {
         return has_tid;
     }
 
-    if !(path.ends_with("/thread.php") || path.ends_with("thread.php")) {
+    if path_file != "thread.php" {
         return false;
     }
 
     url.query_pairs().any(|(key, value)| {
-        key == "stid" && matches!(value.as_ref(), NGA_RECRUIT_STID_CN | NGA_RECRUIT_STID_JP)
+        key.as_ref().eq_ignore_ascii_case("stid") && is_supported_nga_board_stid(value.as_ref())
     })
+}
+
+fn is_nga_board_url(url: &Url) -> bool {
+    if !is_supported_nga_collect_url(url) {
+        return false;
+    }
+    let path = url.path().to_ascii_lowercase();
+    path.rsplit('/').next().unwrap_or(path.as_str()) == "thread.php"
+}
+
+fn is_supported_nga_board_stid(value: &str) -> bool {
+    let value = value.trim();
+    value == NGA_RECRUIT_STID_CN
+        || value == NGA_RECRUIT_STID_JP
+        || value == NGA_RECRUIT_STID_EU
+        || value == NGA_RECRUIT_STID_OCE
+        || value == NGA_RECRUIT_STID_US
+}
+
+fn canonicalize_nga_board_url(url: &Url) -> Option<String> {
+    if !is_allowed_nga_host(url.host_str().unwrap_or_default()) {
+        return None;
+    }
+    let path = url.path().to_ascii_lowercase();
+    let path_file = path.rsplit('/').next().unwrap_or(path.as_str());
+    if path_file != "thread.php" {
+        return None;
+    }
+    let stid = url.query_pairs().find_map(|(key, value)| {
+        key.as_ref()
+            .eq_ignore_ascii_case("stid")
+            .then(|| value.to_string())
+    })?;
+    if !is_supported_nga_board_stid(&stid) {
+        return None;
+    }
+    Some(format!(
+        "https://bbs.nga.cn/thread.php?stid={}",
+        stid.trim()
+    ))
+}
+
+fn is_same_nga_collect_target(current_url: &Url, expected_url: &Url) -> bool {
+    if !is_supported_nga_collect_url(current_url) || !is_supported_nga_collect_url(expected_url) {
+        return false;
+    }
+    let current_path = current_url.path().to_ascii_lowercase();
+    let expected_path = expected_url.path().to_ascii_lowercase();
+    let current_file = current_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(current_path.as_str());
+    let expected_file = expected_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(expected_path.as_str());
+    if current_file != expected_file {
+        return false;
+    }
+    if expected_file == "thread.php" {
+        if query_value(current_url, "stid") != query_value(expected_url, "stid") {
+            return false;
+        }
+        if let Some(expected_page) = query_value(expected_url, "page") {
+            return query_value(current_url, "page").unwrap_or_else(|| "1".to_string())
+                == expected_page;
+        }
+        return true;
+    }
+    if expected_file == "read.php" {
+        return query_value(current_url, "tid") == query_value(expected_url, "tid");
+    }
+    false
+}
+
+fn is_same_nga_board_series(current_url: &Url, expected_url: &Url) -> bool {
+    is_nga_board_url(current_url)
+        && is_nga_board_url(expected_url)
+        && query_value(current_url, "stid") == query_value(expected_url, "stid")
+}
+
+fn nga_page_visit_key(url: &Url) -> String {
+    let stid = query_value(url, "stid").unwrap_or_default();
+    let page = query_value(url, "page").unwrap_or_else(|| "1".to_string());
+    format!("{stid}:{page}")
+}
+
+fn nga_sample_key(sample: &Value) -> String {
+    let topic_id = read_string(sample, "topicId");
+    if !topic_id.trim().is_empty() {
+        return topic_id;
+    }
+    let url = read_string(sample, "url");
+    if !url.trim().is_empty() {
+        return url;
+    }
+    format!(
+        "{}:{}",
+        read_string(sample, "title"),
+        read_string(sample, "author")
+    )
+}
+
+fn query_value(url: &Url, name: &str) -> Option<String> {
+    url.query_pairs().find_map(|(key, value)| {
+        key.as_ref()
+            .eq_ignore_ascii_case(name)
+            .then(|| value.to_string())
+    })
+}
+
+fn extract_nga_interstitial_target(url: &Url) -> Option<Url> {
+    if !is_allowed_nga_host(url.host_str().unwrap_or_default()) {
+        return None;
+    }
+    let path = url.path().to_ascii_lowercase();
+    if !path.ends_with("/misc/adpage_insert_2.html") && !path.ends_with("misc/adpage_insert_2.html")
+    {
+        return None;
+    }
+    let raw = url.query()?.trim();
+    let decoded = raw
+        .replace("%3A", ":")
+        .replace("%3a", ":")
+        .replace("%2F", "/")
+        .replace("%2f", "/")
+        .replace("%3F", "?")
+        .replace("%3f", "?")
+        .replace("%3D", "=")
+        .replace("%3d", "=")
+        .replace("%26", "&");
+    let target = Url::parse(&decoded).ok()?;
+    if is_supported_nga_collect_url(&target) {
+        Some(target)
+    } else {
+        None
+    }
 }
 
 fn nga_profile_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -1425,7 +1626,7 @@ fn set_nga_progress(
     *state
         .progress
         .lock()
-        .map_err(|_| "NGA 采集状态锁定失败。".to_string())? = progress;
+        .map_err(|_| "NGA 读取状态锁定失败。".to_string())? = progress;
     Ok(())
 }
 
@@ -1435,6 +1636,115 @@ fn close_nga_popup_windows(app: &AppHandle) {
             let _ = window.close();
         }
     }
+}
+
+struct NgaPageSnapshot {
+    samples: Vec<Value>,
+    next_url: Option<Url>,
+}
+
+async fn collect_nga_board_samples(
+    window: &tauri::WebviewWindow,
+    state: &tauri::State<'_, NgaCollectState>,
+    start_url: &Url,
+    max_items: usize,
+    interval: u64,
+    started_at: &str,
+) -> Result<(Vec<Value>, bool), String> {
+    let mut collected = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut visited_pages = std::collections::BTreeSet::new();
+    let mut expected_url = start_url.clone();
+    let mut page_index = 1usize;
+    let mut cancelled = false;
+
+    loop {
+        if collected.len() >= max_items {
+            break;
+        }
+        if state.cancelled.load(Ordering::SeqCst) {
+            cancelled = true;
+            break;
+        }
+        if !visited_pages.insert(nga_page_visit_key(&expected_url)) {
+            break;
+        }
+
+        let ready = wait_for_expected_nga_page(
+            window,
+            state,
+            &expected_url,
+            interval,
+            started_at,
+            collected.len(),
+            max_items,
+        )
+        .await?;
+        if !ready {
+            break;
+        }
+
+        set_nga_progress(
+            state,
+            json!({
+                "status": "collecting",
+                "currentUrl": window.url().map(|url| url.to_string()).unwrap_or_else(|_| expected_url.to_string()),
+                "collected": collected.len(),
+                "maxItems": max_items,
+                "message": format!("正在读取招募板第 {} 页，已找到 {}/{} 条。", page_index, collected.len(), max_items),
+                "startedAt": started_at
+            }),
+        )?;
+
+        let remaining = max_items.saturating_sub(collected.len());
+        let snapshot = eval_nga_page_snapshot(window, remaining)?;
+        let page_samples = sanitize_nga_samples(snapshot.samples, remaining);
+        for sample in page_samples {
+            if collected.len() >= max_items {
+                break;
+            }
+            let key = nga_sample_key(&sample);
+            if key.is_empty() || seen.contains(&key) {
+                continue;
+            }
+            seen.insert(key);
+            collected.push(sample);
+        }
+
+        let Some(next_url) = snapshot.next_url else {
+            break;
+        };
+        if collected.len() >= max_items {
+            break;
+        }
+        if !is_same_nga_board_series(&next_url, start_url)
+            || visited_pages.contains(&nga_page_visit_key(&next_url))
+        {
+            break;
+        }
+
+        page_index += 1;
+        set_nga_progress(
+            state,
+            json!({
+                "status": "collecting",
+                "currentUrl": next_url.to_string(),
+                "collected": collected.len(),
+                "maxItems": max_items,
+                "message": format!("正在翻到招募板第 {} 页，已找到 {}/{} 条。", page_index, collected.len(), max_items),
+                "startedAt": started_at
+            }),
+        )?;
+        let target = serde_json::to_string(next_url.as_str())
+            .map_err(|error| format!("NGA 下一页地址序列化失败：{error}"))?;
+        window
+            .eval(format!("location.assign({target});"))
+            .map_err(|error| format!("NGA 招募板下一页打开失败：{error}"))?;
+        tokio::time::sleep(Duration::from_millis(interval)).await;
+        expected_url = next_url;
+    }
+
+    Ok((sanitize_nga_samples(collected, max_items), cancelled))
 }
 
 async fn collect_nga_detail_samples(
@@ -1489,6 +1799,20 @@ async fn collect_nga_detail_samples(
             .eval(format!("location.assign({target});"))
             .map_err(|error| format!("NGA 详情页打开失败：{error}"))?;
         tokio::time::sleep(Duration::from_millis(interval)).await;
+        let ready = wait_for_expected_nga_page(
+            window,
+            state,
+            &parsed_url,
+            interval,
+            started_at,
+            detailed.len(),
+            max_items,
+        )
+        .await?;
+        if !ready {
+            detailed.push(sample);
+            continue;
+        }
 
         if state.cancelled.load(Ordering::SeqCst) {
             cancelled = true;
@@ -1512,65 +1836,172 @@ async fn collect_nga_detail_samples(
     Ok((sanitize_nga_samples(detailed, max_items), cancelled))
 }
 
+async fn wait_for_expected_nga_page(
+    window: &tauri::WebviewWindow,
+    state: &tauri::State<'_, NgaCollectState>,
+    expected_url: &Url,
+    interval: u64,
+    started_at: &str,
+    collected: usize,
+    max_items: usize,
+) -> Result<bool, String> {
+    let normal_attempts = (12_000_u64 / interval.max(1)).clamp(3, 12);
+    let interstitial_attempts = (45_000_u64 / interval.max(1)).clamp(normal_attempts, 45);
+    let mut attempt = 1;
+    while attempt <= interstitial_attempts {
+        if state.cancelled.load(Ordering::SeqCst) {
+            return Ok(false);
+        }
+        let current_url = window
+            .url()
+            .map_err(|error| format!("NGA 当前页面地址读取失败：{error}"))?;
+        if is_same_nga_collect_target(&current_url, expected_url) {
+            return Ok(true);
+        }
+        if let Some(target) = extract_nga_interstitial_target(&current_url) {
+            set_nga_progress(
+                state,
+                json!({
+                    "status": "collecting",
+                    "currentUrl": current_url.to_string(),
+                    "collected": collected,
+                    "maxItems": max_items,
+                    "message": format!("帖子打开了继续浏览页，请在 NGA 窗口点继续；第 {}/{} 次检查。", attempt, interstitial_attempts),
+                    "startedAt": started_at
+                }),
+            )?;
+            if !is_same_nga_collect_target(&target, expected_url) {
+                return Ok(false);
+            }
+            tokio::time::sleep(Duration::from_millis(interval)).await;
+            attempt += 1;
+            continue;
+        }
+        if attempt >= normal_attempts {
+            return Ok(false);
+        }
+        tokio::time::sleep(Duration::from_millis(interval)).await;
+        attempt += 1;
+    }
+    Ok(false)
+}
+
 fn eval_nga_samples(window: &tauri::WebviewWindow, max_items: usize) -> Result<Vec<Value>, String> {
-    let script = format!(
-        r##"
-(() => {{
-  const maxItems = {max_items};
-  const absoluteUrl = (value) => {{
-    try {{ return new URL(value || location.href, location.href).toString(); }} catch (_) {{ return ""; }}
-  }};
-  const idFromUrl = (url, key) => {{
-    try {{ return new URL(url).searchParams.get(key) || ""; }} catch (_) {{ return ""; }}
-  }};
+    Ok(eval_nga_page_snapshot(window, max_items)?.samples)
+}
+
+fn eval_nga_page_snapshot(
+    window: &tauri::WebviewWindow,
+    max_items: usize,
+) -> Result<NgaPageSnapshot, String> {
+    let script = r##"
+(() => {
+  const maxItems = __MAX_ITEMS__;
+  const absoluteUrl = (value) => {
+    try { return new URL(value || location.href, location.href).toString(); } catch (_) { return ""; }
+  };
+  const idFromUrl = (url, key) => {
+    try { return new URL(url).searchParams.get(key) || ""; } catch (_) { return ""; }
+  };
   const text = (node) => (node && node.textContent ? node.textContent.replace(/\s+/g, " ").trim() : "");
-  const firstText = (selectors) => {{
-    for (const selector of selectors) {{
+  const firstText = (selectors) => {
+    for (const selector of selectors) {
       const value = text(document.querySelector(selector));
       if (value) return value;
-    }}
+    }
     return "";
-  }};
-  const publishedFrom = (root) => {{
+  };
+  const publishedFrom = (root) => {
     const value = text(root || document.body);
-    const match = value.match(/20\d{{2}}[-/年.]\d{{1,2}}[-/月.]\d{{1,2}}(?:\s+\d{{1,2}}[:：]\d{{2}})?/);
+    const match = value.match(/20\d{2}[-/年.]\d{1,2}[-/月.]\d{1,2}(?:\s+\d{1,2}[:：]\d{2})?/);
     return match ? match[0] : "";
-  }};
+  };
+  const postIndexFrom = (node) => {
+    const value = node && node.id ? node.id : "";
+    const match = value.match(/(\d+)/);
+    return match ? Number(match[1]) : 0;
+  };
+  const authorKey = (value) => {
+    const raw = String(value || "");
+    const uid = raw.match(/UID[:：]?\s*(\d+)/i) || raw.match(/#\d+\s*([^\s#]+)/);
+    return uid ? uid[1] : raw.replace(/\s+/g, "").slice(0, 40);
+  };
+  const isNoiseFloor = (value) => {
+    const normalized = String(value || "").replace(/\s+/g, "");
+    return !normalized || normalized.length < 18 || /^(顶|帮顶|mark|蹲|插眼|收藏|前排|111+|纯顶|路过|dd|up)+$/i.test(normalized);
+  };
   const currentUrl = absoluteUrl(location.href);
   const forumId = idFromUrl(currentUrl, "fid");
   const topicId = idFromUrl(currentUrl, "tid");
+  let nextUrl = "";
   const samples = [];
 
-  if (topicId) {{
+  if (topicId) {
     const title = firstText(["#postsubject0", "[id^='postsubject']", ".postsubject", "h1"]) || document.title.replace(/ - NGA.*$/, "");
-    const body = firstText(["#postcontent0", "[id^='postcontent']", ".postcontent", ".postbody", "#m_posts"]) || text(document.body).slice(0, 5000);
-    const author = firstText(["#posterinfo0", "[id^='posterinfo']", ".posterinfo", ".author"]);
-    samples.push({{ title, body, url: currentUrl, author, publishedAt: publishedFrom(document.body), forumId, topicId }});
-  }} else {{
-    const links = Array.from(document.querySelectorAll("a[href*='read.php?tid='], a[href*='read.php'][href*='tid=']"));
+    const contentNodes = Array.from(new Set(Array.from(document.querySelectorAll("[id^='postcontent'], .postcontent, .postbody"))));
+    const firstAuthor = text(document.querySelector("#posterinfo0, [id='posterinfo0'], [id^='posterinfo'], .posterinfo, .author"));
+    const firstAuthorKey = authorKey(firstAuthor);
+    const floors = contentNodes
+      .map((node) => {
+        const index = postIndexFrom(node);
+        const author = text(document.querySelector(`#posterinfo${index}`)) || firstAuthor;
+        return { index, author, authorKey: authorKey(author), body: text(node) };
+      })
+      .filter((item, index, list) => item.body && list.findIndex((other) => other.body === item.body) === index)
+      .sort((a, b) => a.index - b.index);
+    const firstFloor = floors.find((item) => item.index === 0) || floors[0];
+    const authorFloors = floors
+      .filter((item) => item !== firstFloor && item.authorKey && item.authorKey === firstAuthorKey && !isNoiseFloor(item.body))
+      .map((item) => item.body);
+    const bodyParts = [firstFloor?.body || "", ...authorFloors].filter(Boolean);
+    const body = bodyParts.length ? bodyParts.join("\n\n") : text(document.body).slice(0, 5000);
+    samples.push({ title, body, url: currentUrl, author: firstAuthor, publishedAt: publishedFrom(document.body), forumId, topicId });
+  } else {
+    const currentStid = idFromUrl(currentUrl, "stid");
+    const currentPage = Number(idFromUrl(currentUrl, "page") || "1") || 1;
+    const topicLinks = Array.from(document.querySelectorAll("a.topic[href*='read.php'][href*='tid=']"));
+    const fallbackLinks = Array.from(document.querySelectorAll("a[href*='read.php?tid='], a[href*='read.php'][href*='tid=']"));
+    const links = topicLinks.length ? topicLinks : fallbackLinks;
     const seen = new Set();
-    for (const link of links) {{
+    for (const link of links) {
       if (samples.length >= maxItems) break;
       const url = absoluteUrl(link.getAttribute("href"));
       const tid = idFromUrl(url, "tid");
-      if (!tid || seen.has(tid)) continue;
+      if (!tid || tid === currentStid || seen.has(tid)) continue;
+      const className = String(link.className || "");
+      if (!topicLinks.length && /nav_link|replies|silver|uitxt|txtbtn/i.test(className)) continue;
       seen.add(tid);
       const root = link.closest("tr, .topic, .thread, .row, li, article, div") || link.parentElement || document.body;
       const title = text(link);
-      if (!title) continue;
-      samples.push({{
+      if (!title || title.length < 4) continue;
+      samples.push({
         title,
         body: "",
         url,
-        author: firstText.call(null, []) || text(root.querySelector(".author, [class*='author'], [id*='author']")),
+        author: text(root.querySelector(".author, [class*='author'], [id*='author']")),
         publishedAt: publishedFrom(root),
         forumId: idFromUrl(url, "fid") || forumId,
         topicId: tid
-      }});
-    }}
-  }}
+      });
+    }
+    const nextLinks = Array.from(document.querySelectorAll("a[title*='加载下一页'], a[href*='thread.php'][href*='page=']"));
+    const candidates = [];
+    for (const link of nextLinks) {
+      const href = absoluteUrl(link.getAttribute("href"));
+      if (!href || idFromUrl(href, "stid") !== currentStid) continue;
+      const page = Number(idFromUrl(href, "page") || "0") || 0;
+      if (page <= currentPage) continue;
+      const label = text(link);
+      const title = String(link.getAttribute("title") || "");
+      const className = String(link.className || "");
+      const likelyNext = /加载下一页|下一页/.test(title) || label.includes(">") || /uitxt1/.test(className) || page === currentPage + 1;
+      if (likelyNext) candidates.push({ href, page });
+    }
+    candidates.sort((a, b) => a.page - b.page);
+    nextUrl = candidates[0]?.href || "";
+  }
 
-  return samples.slice(0, maxItems).map((item) => ({{
+  const normalizedSamples = samples.slice(0, maxItems).map((item) => ({
     title: String(item.title || ""),
     body: String(item.body || ""),
     url: String(item.url || ""),
@@ -1578,36 +2009,53 @@ fn eval_nga_samples(window: &tauri::WebviewWindow, max_items: usize) -> Result<V
     publishedAt: String(item.publishedAt || ""),
     forumId: String(item.forumId || ""),
     topicId: String(item.topicId || "")
-  }}));
-}})()
+  }));
+  return { samples: normalizedSamples, nextUrl: String(nextUrl || "") };
+})()
 "##
-    );
+    .replace("__MAX_ITEMS__", &max_items.to_string());
     let (sender, receiver) = std::sync::mpsc::channel();
     window
         .eval_with_callback(script, move |result| {
             let _ = sender.send(result);
         })
-        .map_err(|error| format!("NGA 页面样本读取脚本执行失败：{error}"))?;
+        .map_err(|error| format!("NGA 页面招募读取脚本执行失败：{error}"))?;
     let payload = receiver
         .recv_timeout(Duration::from_secs(NGA_EVAL_TIMEOUT_SECS))
-        .map_err(|_| "NGA 页面样本读取超时。".to_string())?;
-    parse_eval_samples(&payload)
+        .map_err(|_| "NGA 页面招募读取超时。".to_string())?;
+    parse_eval_page_snapshot(&payload)
 }
 
-fn parse_eval_samples(payload: &str) -> Result<Vec<Value>, String> {
+fn parse_eval_page_snapshot(payload: &str) -> Result<NgaPageSnapshot, String> {
     let first_parse: Value = serde_json::from_str(payload)
-        .map_err(|error| format!("NGA 页面样本 JSON 解析失败：{error}"))?;
-    if let Some(array) = first_parse.as_array() {
-        return Ok(array.clone());
-    }
-    if let Some(text) = first_parse.as_str() {
+        .map_err(|error| format!("NGA 页面招募 JSON 解析失败：{error}"))?;
+    let parsed = if let Some(text) = first_parse.as_str() {
         let nested: Value = serde_json::from_str(text)
-            .map_err(|error| format!("NGA 页面样本 JSON 解析失败：{error}"))?;
-        if let Some(array) = nested.as_array() {
-            return Ok(array.clone());
-        }
+            .map_err(|error| format!("NGA 页面招募 JSON 解析失败：{error}"))?;
+        nested
+    } else {
+        first_parse
+    };
+    if let Some(array) = parsed.as_array() {
+        return Ok(NgaPageSnapshot {
+            samples: array.clone(),
+            next_url: None,
+        });
     }
-    Err("NGA 页面样本脚本没有返回数组。".to_string())
+    let Some(object) = parsed.as_object() else {
+        return Err("NGA 页面招募脚本没有返回有效对象。".to_string());
+    };
+    let samples = object
+        .get("samples")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let next_url = object
+        .get("nextUrl")
+        .and_then(Value::as_str)
+        .and_then(|value| Url::parse(value).ok())
+        .filter(is_nga_board_url);
+    Ok(NgaPageSnapshot { samples, next_url })
 }
 
 fn sanitize_nga_samples(values: Vec<Value>, max_items: usize) -> Vec<Value> {
@@ -1811,4 +2259,62 @@ fn fallback_string(value: &Value, primary: &str, fallback: &str) -> String {
 
 fn now_iso() -> String {
     Utc::now().to_rfc3339()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_supported_nga_interstitial_target() {
+        let url = Url::parse(
+            "https://bbs.nga.cn/misc/adpage_insert_2.html?https://bbs.nga.cn/read.php?tid=46723623",
+        )
+        .unwrap();
+        let target = extract_nga_interstitial_target(&url).unwrap();
+        assert_eq!(target.as_str(), "https://bbs.nga.cn/read.php?tid=46723623");
+    }
+
+    #[test]
+    fn keeps_known_board_rand_urls_supported() {
+        let url = Url::parse("https://bbs.nga.cn/thread.php?stid=44366746&rand=141").unwrap();
+        assert!(is_supported_nga_collect_url(&url));
+    }
+
+    #[test]
+    fn normalizes_board_urls_without_volatile_parameters() {
+        let url =
+            normalize_nga_url("https://bbs.nga.cn/thread.php?stid=44366746&rand=321").unwrap();
+        assert_eq!(url.as_str(), "https://bbs.nga.cn/thread.php?stid=44366746");
+
+        let url = normalize_nga_url("https://bbs.nga.cn/thread.php?stid=30742942&rand=88").unwrap();
+        assert_eq!(url.as_str(), "https://bbs.nga.cn/thread.php?stid=30742942");
+    }
+
+    #[test]
+    fn matches_expected_collect_targets_by_board_or_topic_id() {
+        let current = Url::parse("https://bbs.nga.cn/thread.php?stid=44366746&rand=321").unwrap();
+        let expected = Url::parse("https://bbs.nga.cn/thread.php?stid=44366746").unwrap();
+        assert!(is_same_nga_collect_target(&current, &expected));
+
+        let other_board = Url::parse("https://bbs.nga.cn/thread.php?stid=30742918").unwrap();
+        assert!(!is_same_nga_collect_target(&other_board, &expected));
+
+        let current_topic = Url::parse("https://bbs.nga.cn/read.php?tid=46723623").unwrap();
+        let expected_topic = Url::parse("https://bbs.nga.cn/read.php?tid=46723623").unwrap();
+        assert!(is_same_nga_collect_target(&current_topic, &expected_topic));
+        assert!(!is_same_nga_collect_target(&current, &expected_topic));
+    }
+
+    #[test]
+    fn parses_board_snapshot_next_page_url() {
+        let snapshot = parse_eval_page_snapshot(
+            r#"{"samples":[],"nextUrl":"https://bbs.nga.cn/thread.php?stid=44366746&page=5"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            snapshot.next_url.unwrap().as_str(),
+            "https://bbs.nga.cn/thread.php?stid=44366746&page=5"
+        );
+    }
 }

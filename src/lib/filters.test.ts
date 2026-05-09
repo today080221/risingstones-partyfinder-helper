@@ -298,6 +298,7 @@ describe("local recruit filtering", () => {
         timeStart: "20",
         timeEnd: "23",
         timeDays: ["6"],
+        selectedLabelIds: [],
         selectedJobIds: ["12"],
         noDuplicateJobs: true,
         selectedPositions: ["H2"],
@@ -329,6 +330,7 @@ describe("local recruit filtering", () => {
         timeStart: "",
         timeEnd: "",
         timeDays: [],
+        selectedLabelIds: [],
         selectedJobIds: [],
         noDuplicateJobs: true,
         selectedPositions: [],
@@ -340,6 +342,46 @@ describe("local recruit filtering", () => {
 
     expect(result.rows.map((row) => row.id)).toEqual([1]);
     expect(result.rejected).toBe(2);
+  });
+
+  it("filters local labels across official labels and NGA parser tags", () => {
+    const rows = [
+      recruit({
+        id: 1,
+        labelInfo: [{ id: "seeking", name: "求职", weight: 1 }]
+      }),
+      recruit({
+        id: 2,
+        source: "nga",
+        parseTags: ["社畜/晚间队"],
+        parsedFields: { requirements: "logs 要求" }
+      }),
+      recruit({ id: 3, labelInfo: [{ id: "practice", name: "开荒", weight: 1 }] })
+    ];
+
+    const result = filterRecruitRows(
+      rows,
+      {
+        ngaRecruitView: "all",
+        progressText: "",
+        strategyText: "",
+        timeText: "",
+        excludeText: "",
+        timeStart: "",
+        timeEnd: "",
+        timeDays: [],
+        selectedLabelIds: ["求职", "社畜"],
+        selectedJobIds: [],
+        noDuplicateJobs: true,
+        selectedPositions: [],
+        alliance: "",
+        showUnparsedTime: true
+      },
+      meta
+    );
+
+    expect(result.rows.map((row) => row.id)).toEqual([1, 2]);
+    expect(result.rejected).toBe(1);
   });
 });
 

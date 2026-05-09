@@ -21,16 +21,29 @@ export const NGA_SAMPLE_FIELDS: Array<keyof NgaSample> = [
   "topicId"
 ];
 
+export const NGA_RECRUIT_BOARD_URLS = {
+  cn: "https://bbs.nga.cn/thread.php?stid=44366746",
+  jp: "https://bbs.nga.cn/thread.php?stid=42005319",
+  eu: "https://bbs.nga.cn/thread.php?stid=30742918",
+  oceania: "https://bbs.nga.cn/thread.php?stid=30742942",
+  us: "https://bbs.nga.cn/thread.php?stid=30742904"
+} as const;
+
+export const DEFAULT_NGA_SELECTED_BOARD_URLS = [NGA_RECRUIT_BOARD_URLS.cn];
+const NGA_RECRUIT_BOARD_URL_SET = new Set<string>(Object.values(NGA_RECRUIT_BOARD_URLS));
+
 export const DEFAULT_NGA_COLLECTION_SETTINGS: NgaCollectionSettings = {
   keepLogin: false,
-  startUrl: "https://bbs.nga.cn/thread.php?stid=44366746",
-  requestIntervalMs: 3000,
-  maxItems: 200,
+  startUrl: NGA_RECRUIT_BOARD_URLS.cn,
+  selectedBoardUrls: [...DEFAULT_NGA_SELECTED_BOARD_URLS],
+  allowMultipleBoards: false,
+  requestIntervalMs: 1000,
+  maxItems: 500,
   filterMode: "balanced",
-  includeDetails: false
+  includeDetails: true
 };
 
-const MIN_REQUEST_INTERVAL_MS = 1500;
+const MIN_REQUEST_INTERVAL_MS = 500;
 const MAX_REQUEST_INTERVAL_MS = 15000;
 const MIN_MAX_ITEMS = 1;
 export const NGA_MAX_SAMPLE_STORE_ITEMS = 1500;
@@ -369,7 +382,7 @@ const REQUIREMENT_PATTERNS: AliasEntry[] = [
 const ANTI_TOOL_RE =
   /(?:禁止|禁用|严禁|拒绝|谢绝|婉拒|不(?:支持|接受|欢迎|允许|要)|不坐|不用|无|非).{0,8}(?:第三方|插件|外挂|宝宝椅|科技|脚本|轮椅|ACT|TTS|Triggernometry|PostNamazu|Dalamud|卫月)|(?:第三方|插件|外挂|宝宝椅|科技|脚本|轮椅|ACT|TTS|Triggernometry|PostNamazu|Dalamud|卫月).{0,8}(?:禁止|禁用|严禁|拒绝|谢绝|婉拒|不(?:支持|接受|欢迎|允许|要)|不用)/gi;
 const ANTI_CARRY_RE =
-  /(?:非|禁止|严禁|拒绝|谢绝|婉拒|不(?:支持|接受|欢迎|允许|要)|无).{0,8}(?:装甲车|代打|工作室|老板|车队|带过)|(?:装甲车|代打|工作室|老板|车队|带过).{0,8}(?:禁止|严禁|拒绝|谢绝|婉拒|不(?:支持|接受|欢迎|允许|要)|无|非)/gi;
+  /(?:非|禁止|严禁|拒绝|谢绝|婉拒|不(?:支持|接受|欢迎|允许|要)|无|看不到|看不见|别来|请绕道|绕道|慎重).{0,10}(?:装甲车|代打|工作室|老板|车队|带过)|(?:装甲车|代打|工作室|老板|车队|带过).{0,12}(?:禁止|严禁|拒绝|谢绝|婉拒|不(?:支持|接受|欢迎|允许|要)|无|非|看不到|看不见|别来|请绕道|绕道|慎重)/gi;
 const ANTI_CHEAT_RE =
   /(?:亚拉戈科技小子|科技小子|开挂|作弊|外挂|异常科技).{0,16}(?:请自重|慎重|别来|不要|请绕道)|(?:请自重|慎重|别来|不要|请绕道).{0,16}(?:亚拉戈科技小子|科技小子|开挂|作弊|外挂|异常科技)/gi;
 const ALL_FEMALE_RE = /全妹队|全女队|女队|妹子队|女生队|只(?:招|收|要)女生|仅(?:限|收|招)?女生|女生限定/gi;
@@ -468,14 +481,27 @@ export async function resolveKeepLoginPreference(
 export function normalizeNgaCollectionSettings(
   input: Partial<NgaCollectionSettings>
 ): NgaCollectionSettings {
+  const startUrl = normalizeNgaStartUrl(input.startUrl);
+  const allowMultipleBoards = Boolean(input.allowMultipleBoards);
+  const selectedBoardUrls = normalizeNgaSelectedBoardUrls(input.selectedBoardUrls, startUrl, allowMultipleBoards);
   return {
     keepLogin: Boolean(input.keepLogin),
-    startUrl: normalizeNgaStartUrl(input.startUrl),
-    requestIntervalMs: clampInteger(input.requestIntervalMs, MIN_REQUEST_INTERVAL_MS, MAX_REQUEST_INTERVAL_MS),
-    maxItems: clampInteger(input.maxItems, MIN_MAX_ITEMS, MAX_MAX_ITEMS),
+    startUrl,
+    selectedBoardUrls,
+    allowMultipleBoards,
+    requestIntervalMs: clampInteger(
+      input.requestIntervalMs ?? DEFAULT_NGA_COLLECTION_SETTINGS.requestIntervalMs,
+      MIN_REQUEST_INTERVAL_MS,
+      MAX_REQUEST_INTERVAL_MS
+    ),
+    maxItems: clampInteger(input.maxItems ?? DEFAULT_NGA_COLLECTION_SETTINGS.maxItems, MIN_MAX_ITEMS, MAX_MAX_ITEMS),
     filterMode: input.filterMode ?? DEFAULT_NGA_COLLECTION_SETTINGS.filterMode,
-    includeDetails: Boolean(input.includeDetails)
+    includeDetails: input.includeDetails ?? DEFAULT_NGA_COLLECTION_SETTINGS.includeDetails
   };
+}
+
+export function cleanNgaDisplayText(value: unknown): string {
+  return stripNgaAuthorMetadata(cleanText(value));
 }
 
 export function sanitizeNgaSample<T extends Partial<Record<keyof NgaSample, unknown>>>(input: T): NgaSample {
@@ -4253,6 +4279,7 @@ function collectRequirementParts(text: string): ParsedTextMatch[] {
     .filter((match) => !(match.alias === "科技" && isTechnologyHeadingContext(text, match.index)))
     .filter((match) => !(match.alias === "科技" && isAntiCheatContext(text, match.index)))
     .filter((match) => !(RISK_TOOL_ALIAS_RE.test(match.entry.value) && isPluginNeutralContext(text, match.index)))
+    .filter((match) => !(RISK_CARRY_ALIAS_RE.test(match.entry.value) && isAntiCarryRiskContext(text, match.index)))
     .filter((match) => match.alias === "非绿玩" || !isAntiRequirementContext(text, match.index) || (!RISK_TOOL_ALIAS_RE.test(match.entry.value) && !RISK_CARRY_ALIAS_RE.test(match.entry.value)))
     .map((match) => ({
       value: match.entry.value,
@@ -4431,6 +4458,10 @@ function isAntiToolRiskContext(text: string, index: number): boolean {
     /禁止|禁用|严禁|拒绝|谢绝|婉拒|不支持|不接受|不欢迎|不允许|不要|不坐|不用|不(?:依赖|使用|开|用)|无|非/.test(before) ||
     /禁止|禁用|严禁|拒绝|谢绝|婉拒|不支持|不接受|不欢迎|不允许|不要|不坐|不用|不(?:依赖|使用|开|用)/.test(after)
   );
+}
+
+function isAntiCarryRiskContext(text: string, index: number): boolean {
+  return matchesPattern(ANTI_CARRY_RE, contextAround(text, index, 18, 24));
 }
 
 function isPluginEcosystemOpenContext(text: string, index: number): boolean {
@@ -4979,10 +5010,65 @@ function normalizeNgaStartUrl(value: unknown): string {
       return DEFAULT_NGA_COLLECTION_SETTINGS.startUrl;
     }
     url.protocol = "https:";
+    const boardUrl = canonicalizeNgaRecruitBoardUrl(url);
+    if (boardUrl) {
+      return boardUrl;
+    }
     return url.toString();
   } catch {
     return DEFAULT_NGA_COLLECTION_SETTINGS.startUrl;
   }
+}
+
+function normalizeNgaSelectedBoardUrls(value: unknown, fallback: string, allowMultipleBoards: boolean): string[] {
+  const candidates = Array.isArray(value) ? value : [];
+  const selected: string[] = [];
+  for (const candidate of candidates) {
+    const url = normalizeNgaBoardUrl(candidate);
+    if (url && !selected.includes(url)) {
+      selected.push(url);
+    }
+  }
+  if (!selected.length && NGA_RECRUIT_BOARD_URL_SET.has(fallback)) {
+    selected.push(fallback);
+  }
+  const normalized = selected.length ? selected : [...DEFAULT_NGA_SELECTED_BOARD_URLS];
+  return allowMultipleBoards ? normalized : [normalized[0]];
+}
+
+function normalizeNgaBoardUrl(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    return "";
+  }
+  try {
+    const url = new URL(value.trim());
+    if (!["https:", "http:"].includes(url.protocol) || !isNgaHost(url.hostname)) {
+      return "";
+    }
+    url.protocol = "https:";
+    const normalized = canonicalizeNgaRecruitBoardUrl(url) ?? url.toString();
+    return NGA_RECRUIT_BOARD_URL_SET.has(normalized) ? normalized : "";
+  } catch {
+    return "";
+  }
+}
+
+function canonicalizeNgaRecruitBoardUrl(url: URL): string | null {
+  const pathFile = url.pathname.toLowerCase().split("/").pop();
+  if (pathFile !== "thread.php") {
+    return null;
+  }
+  const stid = url.searchParams.get("stid")?.trim();
+  if (!stid) {
+    return null;
+  }
+  for (const boardUrl of Object.values(NGA_RECRUIT_BOARD_URLS)) {
+    const board = new URL(boardUrl);
+    if (board.searchParams.get("stid") === stid) {
+      return boardUrl;
+    }
+  }
+  return null;
 }
 
 function isNgaHost(hostname: string): boolean {

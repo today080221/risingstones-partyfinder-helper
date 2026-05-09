@@ -178,8 +178,8 @@ button {
 .panel {
   min-width: 0;
   border-top: 1px solid #e1e7e4;
-  padding-top: 16px;
-  margin-top: 16px;
+  padding-top: 12px;
+  margin-top: 12px;
 }
 
 .section-title {
@@ -189,14 +189,14 @@ button {
   color: #1e6d5a;
   font-weight: 700;
   font-size: 14px;
-  margin-bottom: 12px;
+  margin-bottom: 9px;
 }
 
 .field {
   display: grid;
-  gap: 7px;
+  gap: 5px;
   min-width: 0;
-  margin-bottom: 12px;
+  margin-bottom: 9px;
   color: #4e5d58;
   font-size: 12px;
   font-weight: 700;
@@ -206,7 +206,7 @@ button {
 .field select {
   width: 100%;
   min-width: 0;
-  min-height: 36px;
+  min-height: 34px;
   border: 1px solid #cdd7d2;
   border-radius: 6px;
   padding: 7px 9px;
@@ -220,6 +220,37 @@ button {
 .field select:focus {
   border-color: #1e8a71;
   box-shadow: 0 0 0 3px rgba(30, 138, 113, 0.12);
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.field-label-row label {
+  color: #4e5d58;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mini-toggle {
+  min-height: 24px;
+  border: 1px solid #cdd7d2;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #51615c;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mini-toggle.active {
+  border-color: #7fc6b5;
+  background: #e6f4ef;
+  color: #176c59;
 }
 
 .two-columns {
@@ -281,6 +312,66 @@ button {
   background: #ffffff;
   color: #176c59;
   box-shadow: 0 1px 4px rgba(31, 41, 38, 0.08);
+}
+
+.source-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.nga-board-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.source-toggle {
+  min-width: 0;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cdd7d2;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #50615c;
+  padding: 5px 7px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(31, 41, 38, 0.03);
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.nga-board-grid .source-toggle {
+  min-width: 68px;
+  flex: 0 1 auto;
+  padding-inline: 9px;
+}
+
+.source-toggle:hover {
+  border-color: #9fcfc3;
+  background: #f7fcfa;
+}
+
+.source-toggle.active {
+  border-color: #7fc6b5;
+  background: #eef9f5;
+  color: #176c59;
+  box-shadow: inset 0 0 0 1px rgba(30, 138, 113, 0.1), 0 2px 6px rgba(31, 41, 38, 0.05);
+}
+
+.source-toggle:active {
+  transform: translateY(1px);
 }
 
 .job-picker {
@@ -443,8 +534,8 @@ button {
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
-  min-height: 30px;
-  margin: -2px 0 12px;
+  min-height: 28px;
+  margin: -2px 0 8px;
   font-size: 12px;
   color: #4e5d58;
 }
@@ -458,7 +549,7 @@ button {
   gap: 7px;
   min-width: 0;
   max-width: 100%;
-  min-height: 36px;
+  min-height: 34px;
   border-radius: 6px;
   padding: 7px 12px;
   border: 1px solid transparent;
@@ -549,8 +640,10 @@ button {
 
 .nga-panel {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .nga-status-grid,
@@ -558,6 +651,10 @@ button {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.compact-actions {
+  margin-top: -1px;
 }
 
 .nga-action-grid .primary-button,
@@ -572,6 +669,50 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
+}
+
+.disclosure-button {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #d8e2de;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #45534f;
+  padding: 6px 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.disclosure-button:hover {
+  border-color: #9bcfbf;
+  background: #f6fbf9;
+}
+
+.diagnostic-toggle {
+  color: #6b5a1a;
+  background: #fffaf0;
+  border-color: #ead79c;
+}
+
+.compact-disclosure {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #dfe8e4;
+  border-radius: 6px;
+  background: #fbfdfc;
+  padding: 9px;
+}
+
+.diagnostic-panel {
+  background: #fffdf7;
+  border-color: #ead79c;
 }
 
 .nga-progress {
@@ -865,11 +1006,13 @@ button {
 }
 
 .mini-notice {
-  margin-top: 10px;
+  margin-top: 4px;
   border-radius: 6px;
-  padding: 9px 10px;
+  padding: 8px 9px;
   font-size: 12px;
   line-height: 1.5;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .mini-notice.error {
@@ -1053,11 +1196,20 @@ button {
   padding: 5px 9px;
   font-weight: 750;
   font-size: 12px;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
 }
 
 .tiny-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.tiny-button.active {
+  border-color: #7fc6b5;
+  background: #eef9f5;
+  color: #176c59;
 }
 
 .main {

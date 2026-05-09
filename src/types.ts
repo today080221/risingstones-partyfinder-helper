@@ -225,6 +225,8 @@ export interface NgaSampleAnalysisReport {
 export interface NgaCollectionSettings {
   keepLogin: boolean;
   startUrl: string;
+  selectedBoardUrls: string[];
+  allowMultipleBoards: boolean;
   requestIntervalMs: number;
   maxItems: number;
   filterMode: NgaFilterMode;
@@ -255,6 +257,12 @@ export interface NgaVisiblePageStatusPayload {
   allowed: boolean;
   currentUrl: string;
   message: string;
+  state?: "ready" | "interstitial" | "unsupported" | "closed";
+  targetUrl?: string;
+}
+
+export interface NgaNavigateSessionPayload extends NgaVisiblePageStatusPayload {
+  openedUrl?: string;
 }
 
 export interface NgaOpenSessionPayload extends NgaSessionStatusPayload {
@@ -347,6 +355,7 @@ export interface LocalFilterState {
   timeStart: string;
   timeEnd: string;
   timeDays: string[];
+  selectedLabelIds: string[];
   selectedJobIds: string[];
   noDuplicateJobs: boolean;
   selectedPositions: string[];

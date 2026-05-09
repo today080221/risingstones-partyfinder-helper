@@ -311,6 +311,19 @@ const FIXTURES: Fixture[] = [
     }
   },
   {
+    name: "armored carry invisible wording is anti-carry",
+    sample: {
+      title: "[新绝][猫区打] 绝妖星乱舞-开放后第二周开打，6=2 招1近战D4，计划攻略时间3-4周",
+      body: "队内使用TTS及科技。装甲车过本看不到我。"
+    },
+    expect: {
+      positionsInclude: ["D4"],
+      requirements: "第三方工具/插件风险、拒绝装甲车/代打记录",
+      tagsInclude: ["第三方工具/插件风险", "拒绝装甲车/代打记录"],
+      warningsInclude: ["第三方工具/插件风险"]
+    }
+  },
+  {
     name: "no technology wording stays clean stance",
     sample: {
       title: "绝妖星无科技首月队",

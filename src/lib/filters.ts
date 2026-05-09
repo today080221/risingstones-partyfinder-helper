@@ -50,6 +50,9 @@ export function filterRecruitRows(
     if (!matchesOpenPositions(row, filters.selectedPositions, filters.alliance)) {
       continue;
     }
+    if (!matchesLabelFilter(row, filters.selectedLabelIds, meta)) {
+      continue;
+    }
     if (!matchesGlobalExclude(row, globalExcludeTokens)) {
       continue;
     }
@@ -60,6 +63,49 @@ export function filterRecruitRows(
     rows: acceptedRows,
     rejected: rows.length - acceptedRows.length
   };
+}
+
+function matchesLabelFilter(row: RecruitRow, selectedLabelIds: string[], meta: MetaPayload | null): boolean {
+  if (!selectedLabelIds.length) {
+    return true;
+  }
+
+  const labelsById = new Map((meta?.labels ?? []).map((label) => [label.id, label.name]));
+  const selected = new Set(
+    selectedLabelIds
+      .flatMap((value) => [value, labelsById.get(value) ?? ""])
+      .map((value) => value.toLowerCase())
+      .filter(Boolean)
+  );
+  const textValues = [
+    ...(row.label ?? []),
+    ...(row.labelInfo?.flatMap((label) => [label.id, label.name]) ?? []),
+    ...(row.parseTags ?? []),
+    row.parsedFields?.requirements,
+    row.parsedFields?.teamType,
+    row.sourceMeta?.recruitKind ? formatRecruitKindLabel(row.sourceMeta.recruitKind) : ""
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .map((value) => value.toLowerCase());
+
+  return [...selected].some((target) => textValues.some((value) => value === target || value.includes(target)));
+}
+
+function formatRecruitKindLabel(kind: NonNullable<RecruitRow["sourceMeta"]>["recruitKind"]): string {
+  switch (kind) {
+    case "seeking":
+      return "求职 玩家求职";
+    case "recruit":
+      return "招募 队伍招募";
+    case "closed":
+      return "已关闭 已招满";
+    case "noise":
+      return "噪音";
+    case "unknown":
+      return "未识别";
+    default:
+      return "";
+  }
 }
 
 function matchesGlobalExclude(row: RecruitRow, excludeTokens: string[]): boolean {

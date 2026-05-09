@@ -3,6 +3,7 @@ import {
   DEFAULT_NGA_COLLECTION_SETTINGS,
   analyzeNgaSamples,
   classifyNgaSample,
+  cleanNgaDisplayText,
   normalizeNgaCollectionSettings,
   resolveKeepLoginPreference,
   mergeNgaSamples,
@@ -46,10 +47,62 @@ describe("nga collection controls", () => {
       })
     ).toMatchObject({
       startUrl: "https://bbs.nga.cn/thread.php?fid=321",
-      requestIntervalMs: 1500,
+      requestIntervalMs: 500,
       maxItems: 999,
-      includeDetails: false
+      includeDetails: true
     });
+  });
+
+  it("allows half-second request interval for advanced users", () => {
+    expect(normalizeNgaCollectionSettings({ requestIntervalMs: 500 }).requestIntervalMs).toBe(500);
+  });
+
+  it("defaults to the CN recruit board, one-second interval, 500 items, and detail collection", () => {
+    expect(normalizeNgaCollectionSettings({})).toMatchObject({
+      selectedBoardUrls: [DEFAULT_NGA_COLLECTION_SETTINGS.startUrl],
+      allowMultipleBoards: false,
+      requestIntervalMs: 1000,
+      maxItems: 500,
+      includeDetails: true
+    });
+  });
+
+  it("keeps only supported recruit boards in selected board URLs", () => {
+    expect(
+      normalizeNgaCollectionSettings({
+        selectedBoardUrls: ["https://example.com/", "https://bbs.nga.cn/thread.php?stid=30742904"]
+      }).selectedBoardUrls
+    ).toEqual(["https://bbs.nga.cn/thread.php?stid=30742904"]);
+  });
+
+  it("removes volatile board URL parameters from selected board URLs", () => {
+    expect(
+      normalizeNgaCollectionSettings({
+        allowMultipleBoards: true,
+        startUrl: "https://bbs.nga.cn/thread.php?stid=44366746&rand=321",
+        selectedBoardUrls: [
+          "https://bbs.nga.cn/thread.php?stid=44366746&rand=321",
+          "https://bbs.nga.cn/thread.php?stid=30742918&rand=88"
+        ]
+      })
+    ).toMatchObject({
+      startUrl: "https://bbs.nga.cn/thread.php?stid=44366746",
+      selectedBoardUrls: [
+        "https://bbs.nga.cn/thread.php?stid=44366746",
+        "https://bbs.nga.cn/thread.php?stid=30742918"
+      ]
+    });
+  });
+
+  it("uses single-board selection unless multi-board mode is enabled", () => {
+    expect(
+      normalizeNgaCollectionSettings({
+        selectedBoardUrls: [
+          "https://bbs.nga.cn/thread.php?stid=44366746",
+          "https://bbs.nga.cn/thread.php?stid=30742918"
+        ]
+      }).selectedBoardUrls
+    ).toEqual(["https://bbs.nga.cn/thread.php?stid=44366746"]);
   });
 
   it("rejects non-NGA start URLs", () => {
@@ -62,6 +115,14 @@ describe("nga collection controls", () => {
     expect(shouldContinueNgaCollection(0, 2, false)).toBe(true);
     expect(shouldContinueNgaCollection(2, 2, false)).toBe(false);
     expect(shouldContinueNgaCollection(0, 2, true)).toBe(false);
+  });
+});
+
+describe("nga display cleanup", () => {
+  it("removes NGA author metadata from card display strings", () => {
+    expect(cleanNgaDisplayText("7.5绝亚卡开荒招募5=3 - 猫小胖/#0amria 43205080级别: 学徒威望: 1注册: 18-08-21")).toBe(
+      "7.5绝亚卡开荒招募5=3"
+    );
   });
 });
 
@@ -360,6 +421,22 @@ describe("nga parser v1", () => {
     expect(signal.parsedFields.requirements).not.toContain("代打/工作室/带老板风险");
     expect(signal.warnings.some((warning) => warning.includes("风险/要求标签"))).toBe(false);
     expect(signal.tags).toEqual(expect.arrayContaining(["纯净队/禁第三方", "拒绝装甲车/代打记录"]));
+  });
+
+  it("treats armored-carry invisible wording as anti-carry instead of carry risk", () => {
+    const signal = classifyNgaSample(
+      sanitizeNgaSample({
+        title: "[新绝][猫区打] 绝妖星乱舞-开放后第二周开打，6=2 招1近战D4，计划攻略时间3-4周",
+        body: "队内使用TTS及科技及攻略商议。装甲车过本看不到我，提供游戏ID准备LOGS。",
+        url: "https://bbs.nga.cn/read.php?tid=315",
+        topicId: "315"
+      })
+    );
+
+    expect(signal.parsedFields.requirements).toContain("第三方工具/插件风险");
+    expect(signal.parsedFields.requirements).toContain("拒绝装甲车/代打记录");
+    expect(signal.parsedFields.requirements).not.toContain("代打/工作室/带老板风险");
+    expect(signal.tags).toEqual(expect.arrayContaining(["第三方工具/插件风险", "拒绝装甲车/代打记录"]));
   });
 
   it("parses social team constraints as colored requirement tags", () => {

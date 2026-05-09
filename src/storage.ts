@@ -1,6 +1,6 @@
 import type { AllianceKey, LocalFilterState, NgaCollectionSettings, RecruitSource, UpdateProvider } from "./types";
 import { DEFAULT_UPDATE_PROVIDER } from "./config";
-import { DEFAULT_NGA_COLLECTION_SETTINGS } from "./lib/nga";
+import { DEFAULT_NGA_COLLECTION_SETTINGS, normalizeNgaCollectionSettings } from "./lib/nga";
 
 export interface SavedUiState {
   fbType: string;
@@ -14,13 +14,14 @@ export interface SavedUiState {
   updateProvider: UpdateProvider;
   autoCheckUpdates: boolean;
   autoDetectUpdateProvider: boolean;
-  sourceFilter: "all" | RecruitSource;
+  sourceFilters: RecruitSource[];
   ngaSettings: NgaCollectionSettings;
   ngaKeepLoginAcknowledged: boolean;
   filters: LocalFilterState;
 }
 
 const STORAGE_KEY = "risingstones-partyfinder-helper:v1";
+export const ALL_RECRUIT_SOURCES: RecruitSource[] = ["official", "nga"];
 
 export const defaultFilters: LocalFilterState = {
   ngaRecruitView: "teams",
@@ -31,6 +32,7 @@ export const defaultFilters: LocalFilterState = {
   timeStart: "",
   timeEnd: "",
   timeDays: [],
+  selectedLabelIds: [],
   selectedJobIds: [],
   noDuplicateJobs: true,
   selectedPositions: [],
@@ -50,11 +52,24 @@ export const defaultUiState: SavedUiState = {
   updateProvider: DEFAULT_UPDATE_PROVIDER,
   autoCheckUpdates: true,
   autoDetectUpdateProvider: true,
-  sourceFilter: "all",
-  ngaSettings: DEFAULT_NGA_COLLECTION_SETTINGS,
+  sourceFilters: [...ALL_RECRUIT_SOURCES],
+  ngaSettings: { ...DEFAULT_NGA_COLLECTION_SETTINGS, selectedBoardUrls: [...DEFAULT_NGA_COLLECTION_SETTINGS.selectedBoardUrls] },
   ngaKeepLoginAcknowledged: false,
   filters: defaultFilters
 };
+
+export function normalizeSourceFilters(value: unknown, legacyValue?: unknown): RecruitSource[] {
+  const rawValues =
+    Array.isArray(value) && value.length
+      ? value
+      : legacyValue === "all"
+        ? ALL_RECRUIT_SOURCES
+        : legacyValue === "official" || legacyValue === "nga"
+          ? [legacyValue]
+          : ALL_RECRUIT_SOURCES;
+  const selected = rawValues.filter((source): source is RecruitSource => source === "official" || source === "nga");
+  return selected.length ? [...new Set(selected)] : [...ALL_RECRUIT_SOURCES];
+}
 
 export function loadUiState(): SavedUiState {
   try {
@@ -62,27 +77,27 @@ export function loadUiState(): SavedUiState {
     if (!raw) {
       return defaultUiState;
     }
-    const parsed = JSON.parse(raw) as Partial<SavedUiState>;
+    const parsed = JSON.parse(raw) as Partial<SavedUiState> & { sourceFilter?: "all" | RecruitSource };
     const parsedProvider = parsed.updateProvider === "github" ? "github" : DEFAULT_UPDATE_PROVIDER;
+    const parsedFilters: Partial<LocalFilterState> = parsed.filters ?? {};
+    const selectedLabelIds = Array.isArray(parsedFilters.selectedLabelIds)
+      ? parsedFilters.selectedLabelIds
+      : Array.isArray(parsed.labels)
+        ? parsed.labels
+        : [];
     return {
       ...defaultUiState,
       ...parsed,
       labels: Array.isArray(parsed.labels) ? parsed.labels : [],
       updateProvider: parsedProvider,
       autoCheckUpdates: parsed.autoCheckUpdates ?? true,
-      sourceFilter:
-        parsed.sourceFilter === "official" || parsed.sourceFilter === "nga" || parsed.sourceFilter === "all"
-          ? parsed.sourceFilter
-          : "all",
-      ngaSettings: {
-        ...DEFAULT_NGA_COLLECTION_SETTINGS,
-        ...(parsed.ngaSettings ?? {}),
-        keepLogin: Boolean(parsed.ngaSettings?.keepLogin)
-      },
+      sourceFilters: normalizeSourceFilters(parsed.sourceFilters, parsed.sourceFilter),
+      ngaSettings: normalizeNgaCollectionSettings(parsed.ngaSettings ?? {}),
       ngaKeepLoginAcknowledged: Boolean(parsed.ngaKeepLoginAcknowledged),
       filters: {
         ...defaultFilters,
-        ...(parsed.filters ?? {})
+        ...parsedFilters,
+        selectedLabelIds
       }
     };
   } catch {

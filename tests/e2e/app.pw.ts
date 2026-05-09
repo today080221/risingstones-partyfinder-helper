@@ -15,7 +15,10 @@ async function mockLocalApi(page: Page) {
             weight: 1
           }
         ],
-        labels: [{ id: "practice", name: "开荒", weight: 1 }],
+        labels: [
+          { id: "practice", name: "开荒", weight: 1 },
+          { id: "seeking", name: "求职", weight: 2 }
+        ],
         areas: [
           {
             AreaID: 1,
@@ -78,6 +81,59 @@ async function mockLocalApi(page: Page) {
       }
     });
   });
+
+  await page.route("**/api/recruits?**", async (route) => {
+    await route.fulfill({
+      json: {
+        count: 2,
+        fetched: 2,
+        pageSize: 100,
+        fetchedAt,
+        warnings: [],
+        query: {
+          fb_name: "巴哈姆特绝境战"
+        },
+        rows: [
+          {
+            id: 101,
+            uuid: "official-101",
+            character_name: "测试招募人",
+            area_name: "陆行鸟",
+            group_name: "红玉海",
+            fb_type: "绝境战",
+            fb_name: "巴哈姆特绝境战",
+            fb_time: "20:00-23:00",
+            team_composition: "满编小队",
+            progress: "开荒",
+            strategy: "有攻略",
+            response_num: 0,
+            need_job: [],
+            label: [],
+            labelInfo: [{ id: "practice", name: "开荒", weight: 1 }],
+            status: 1
+          },
+          {
+            id: 102,
+            uuid: "official-102",
+            character_name: "测试求职人",
+            area_name: "陆行鸟",
+            group_name: "求职专用",
+            fb_type: "绝境战",
+            fb_name: "巴哈姆特绝境战",
+            fb_time: "21:00-23:00",
+            team_composition: "满编小队",
+            progress: "开荒",
+            strategy: "有攻略",
+            response_num: 0,
+            need_job: [],
+            label: ["seeking"],
+            labelInfo: [{ id: "seeking", name: "求职", weight: 2 }],
+            status: 1
+          }
+        ]
+      }
+    });
+  });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -97,37 +153,134 @@ test("renders the first screen and NGA panel without runtime errors", async ({ p
   await expect(page).toHaveTitle("FF14 副本招募筛选器");
   await expect(page.getByRole("heading", { name: "副本招募筛选器" })).toBeVisible();
   await expect(page.getByText("数据来源")).toBeVisible();
-  await expect(page.getByLabel("保持登录状态")).not.toBeChecked();
+  await expect(page.locator(".source-toggle-grid input")).toHaveCount(0);
+  await expect(page.locator(".nga-board-grid input")).toHaveCount(0);
+  await expect(page.locator(".source-toggle-grid").getByRole("button", { name: "石之家" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".source-toggle-grid").getByRole("button", { name: "NGA" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".nga-board-grid").getByRole("button", { name: "国服" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".nga-board-grid").getByRole("button", { name: "日服" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".nga-board-grid").getByRole("button", { name: "欧区" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".nga-board-grid").getByRole("button", { name: "大洋洲" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".nga-board-grid").getByRole("button", { name: "美区" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByText("数据范围")).toBeVisible();
+  await expect(page.getByText("标签/类型")).toBeVisible();
+  await expect(page.getByText("NGA 招募板地址")).toHaveCount(0);
+  await expect(page.getByLabel("保持本机网页会话")).toHaveCount(0);
+  await expect(page.getByText(/保存位置/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /高级设置/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /开发诊断/ })).toBeVisible();
+  await page.getByRole("button", { name: /高级设置/ }).click();
+  await expect(page.getByLabel("保持本机网页会话")).not.toBeChecked();
   await expect(page.locator(".field").filter({ hasText: "NGA 招募板地址" }).locator("input")).toHaveValue(
     "https://bbs.nga.cn/thread.php?stid=44366746"
   );
-  await expect(page.getByRole("button", { name: "国服招募板" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "日服招募板" })).toBeVisible();
   await expect(page.getByRole("button", { name: /打开 NGA/ })).toBeDisabled();
-  await expect(page.getByRole("button", { name: /登录并采集/ })).toBeDisabled();
-  await expect(page.getByRole("button", { name: /采集当前页/ })).toBeDisabled();
-  await expect(page.getByRole("button", { name: /停止/ })).toBeDisabled();
-  await expect(page.getByText(/登录状态位置：仅 Tauri 桌面版支持内置 NGA 登录窗口。/)).toBeVisible();
-  await expect(page.getByText("先选择石之家副本，或采集 NGA 招募帖")).toBeVisible();
+  await expect(page.getByRole("button", { name: /打开后读取/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /读取当前页/ })).toBeDisabled();
+  await page.getByRole("button", { name: /开发诊断/ }).click();
+  await expect(page.getByText(/保存位置/)).toBeVisible();
+  await expect(page.getByText("先选择石之家副本，或读取 NGA 招募帖")).toBeVisible();
   expect(consoleErrors).toEqual([]);
+});
+
+test("selects NGA regions and advanced board presets", async ({ page }) => {
+  await page.goto("/");
+
+  await page.locator(".nga-board-grid").getByRole("button", { name: "欧区" }).click();
+  await page.locator(".nga-board-grid").getByRole("button", { name: "美区" }).click();
+  await expect(page.locator(".nga-board-grid").getByRole("button", { name: "国服" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".nga-board-grid").getByRole("button", { name: "欧区" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".nga-board-grid").getByRole("button", { name: "美区" })).toHaveAttribute("aria-pressed", "true");
+
+  const multiRegion = page.getByRole("button", { name: "多区读取" });
+  await expect(multiRegion).toHaveAttribute("aria-pressed", "false");
+  await multiRegion.click();
+  await expect(multiRegion).toHaveAttribute("aria-pressed", "true");
+  await page.locator(".nga-board-grid").getByRole("button", { name: "欧区" }).click();
+  await expect(page.locator(".nga-board-grid").getByRole("button", { name: "欧区" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".nga-board-grid").getByRole("button", { name: "美区" })).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByRole("button", { name: /高级设置/ }).click();
+  const ngaStartUrl = page.locator(".field").filter({ hasText: "NGA 招募板地址" }).locator("input");
+  await page.locator(".preset-row").getByRole("button", { name: "欧区" }).click();
+  await expect(ngaStartUrl).toHaveValue("https://bbs.nga.cn/thread.php?stid=30742918");
+
+  await page.locator(".preset-row").getByRole("button", { name: "大洋洲" }).click();
+  await expect(ngaStartUrl).toHaveValue("https://bbs.nga.cn/thread.php?stid=30742942");
+
+  await page.locator(".preset-row").getByRole("button", { name: "美区" }).click();
+  await expect(ngaStartUrl).toHaveValue("https://bbs.nga.cn/thread.php?stid=30742904");
 });
 
 test("requires explicit confirmation before enabling keep-login", async ({ page }) => {
   await page.goto("/");
-  const keepLogin = page.getByLabel("保持登录状态");
+  await page.getByRole("button", { name: /高级设置/ }).click();
+  const keepLogin = page.getByLabel("保持本机网页会话");
 
   page.once("dialog", async (dialog) => {
     expect(dialog.type()).toBe("confirm");
-    expect(dialog.message()).toContain("保持登录状态说明");
+    expect(dialog.message()).toContain("保持本机网页会话说明");
     await dialog.dismiss();
   });
   await keepLogin.click();
   await expect(keepLogin).not.toBeChecked();
 
   page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("本软件不会读取、导出、上传或显示你的账号密码");
+    expect(dialog.message()).toContain("本软件只读取页面上已经渲染出的公开招募内容");
     await dialog.accept();
   });
   await keepLogin.click();
   await expect(keepLogin).toBeChecked();
+});
+
+test("aggregate search can run NGA only without an official dungeon", async ({ page }) => {
+  await page.goto("/");
+
+  await page.locator(".source-toggle-grid").getByRole("button", { name: "石之家" }).click();
+  await page.getByRole("button", { name: "聚合检索" }).click();
+
+  await expect(page.getByText(/浏览器预览仅合并当前页面内存\/本机已有 NGA 招募/)).toBeVisible();
+  await expect(page.getByText(/请先选择副本名称/)).toHaveCount(0);
+});
+
+test("aggregate search pulls official rows when official source and dungeon are selected", async ({ page }) => {
+  await page.goto("/");
+
+  await page.locator(".source-toggle-grid").getByRole("button", { name: "NGA" }).click();
+  await page.locator(".field").filter({ hasText: "副本名称" }).locator("select").selectOption("巴哈姆特绝境战");
+  await page.getByRole("button", { name: "聚合检索" }).click();
+
+  await expect(page.getByRole("heading", { name: "巴哈姆特绝境战" })).toBeVisible();
+  await expect(page.getByText("绝境战 · 陆行鸟/红玉海")).toBeVisible();
+});
+
+test("player seeking view includes official rows tagged as seeking", async ({ page }) => {
+  await page.goto("/");
+
+  await page.locator(".source-toggle-grid").getByRole("button", { name: "NGA" }).click();
+  await page.locator(".field").filter({ hasText: "副本名称" }).locator("select").selectOption("巴哈姆特绝境战");
+  await page.getByRole("button", { name: "聚合检索" }).click();
+  await page.getByRole("button", { name: "玩家求职" }).click();
+
+  await expect(page.getByText("绝境战 · 陆行鸟/求职专用")).toBeVisible();
+  await expect(page.getByText("绝境战 · 陆行鸟/红玉海")).toHaveCount(0);
+});
+
+test("local label filter applies after official full fetch", async ({ page }) => {
+  let seenUrl = "";
+  await page.route("**/api/recruits?**", async (route) => {
+    seenUrl = route.request().url();
+    await route.fallback();
+  });
+  await page.goto("/");
+
+  await page.locator(".source-toggle-grid").getByRole("button", { name: "NGA" }).click();
+  await page.locator(".field").filter({ hasText: "副本名称" }).locator("select").selectOption("巴哈姆特绝境战");
+  await page.getByRole("button", { name: "全部" }).click();
+  await page.locator(".field").filter({ hasText: "标签/类型" }).getByRole("button", { name: "求职" }).click();
+  await page.getByRole("button", { name: "聚合检索" }).click();
+
+  expect(new URL(seenUrl).searchParams.has("label")).toBe(false);
+  await expect(page.getByText("绝境战 · 陆行鸟/求职专用")).toBeVisible();
+  await expect(page.getByText("绝境战 · 陆行鸟/红玉海")).toHaveCount(0);
 });

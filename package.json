@@ -3,6 +3,7 @@
   "version": "0.1.11",
   "description": "FF14 国服石之家副本招募本地全量拉取与筛选工具",
   "private": false,
+  "author": "菜菜的橙子",
   "license": "MIT",
   "type": "module",
   "scripts": {

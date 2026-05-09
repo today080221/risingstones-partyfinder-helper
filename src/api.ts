@@ -7,6 +7,7 @@ import type {
   NgaCollectionSettings,
   NgaCollectionProgress,
   NgaDetailCollectPayload,
+  NgaNavigateSessionPayload,
   NgaOpenSessionPayload,
   NgaSample,
   NgaSampleStorePayload,
@@ -107,8 +108,8 @@ export async function fetchNgaSessionStatus(signal?: AbortSignal): Promise<NgaSe
       available: false,
       loginStatus: "unknown",
       keepLogin: false,
-      dataLocation: "仅 Tauri 桌面版支持内置 NGA 登录窗口。",
-      message: "当前运行环境不支持 Tauri WebView 登录态聚合。"
+      dataLocation: "仅桌面版会保存本机网页窗口状态。",
+      message: "浏览器预览仅能使用已保存的 NGA 招募。"
     };
   }
   return invokeTauri<NgaSessionStatusPayload>("risingstones_nga_session_status", undefined, signal);
@@ -119,7 +120,7 @@ export async function openNgaSession(
   signal?: AbortSignal
 ): Promise<NgaOpenSessionPayload> {
   if (!isTauriRuntime()) {
-    throw new Error("NGA 登录态聚合需要使用 Tauri 桌面版。");
+    throw new Error("NGA 页面读取需要使用桌面版。");
   }
   return invokeTauri<NgaOpenSessionPayload>(
     "risingstones_nga_open_session",
@@ -131,9 +132,16 @@ export async function openNgaSession(
   );
 }
 
+export async function navigateNgaSession(startUrl: string, signal?: AbortSignal): Promise<NgaNavigateSessionPayload> {
+  if (!isTauriRuntime()) {
+    throw new Error("NGA 页面切换需要使用桌面版。");
+  }
+  return invokeTauri<NgaNavigateSessionPayload>("risingstones_nga_navigate_session", { startUrl }, signal);
+}
+
 export async function clearNgaSession(signal?: AbortSignal): Promise<NgaClearSessionPayload> {
   if (!isTauriRuntime()) {
-    throw new Error("NGA 登录状态清理需要使用 Tauri 桌面版。");
+    throw new Error("NGA 本机网页状态清理需要使用桌面版。");
   }
   return invokeTauri<NgaClearSessionPayload>("risingstones_nga_clear_session", undefined, signal);
 }
@@ -144,7 +152,8 @@ export async function fetchNgaVisiblePageStatus(signal?: AbortSignal): Promise<N
       opened: false,
       allowed: false,
       currentUrl: "",
-      message: "当前运行环境不支持 Tauri WebView 登录态聚合。"
+      state: "closed",
+      message: "浏览器预览没有桌面网页窗口。"
     };
   }
   return invokeTauri<NgaVisiblePageStatusPayload>("risingstones_nga_visible_page_status", undefined, signal);
@@ -155,7 +164,7 @@ export async function collectNgaVisibleSamples(
   signal?: AbortSignal
 ): Promise<NgaCollectPayload> {
   if (!isTauriRuntime()) {
-    throw new Error("NGA 样本采集需要使用 Tauri 桌面版。");
+    throw new Error("NGA 页面读取需要使用桌面版。");
   }
   return invokeTauri<NgaCollectPayload>(
     "risingstones_nga_collect_visible_samples",
@@ -173,8 +182,8 @@ export async function loadNgaSamples(signal?: AbortSignal): Promise<NgaSampleSto
     return {
       samples: [],
       count: 0,
-      dataLocation: "仅 Tauri 桌面版会保存 NGA 样本到本机应用数据目录。",
-      message: "当前运行环境不支持 Tauri 本机样本持久化。"
+      dataLocation: "仅桌面版会保存 NGA 招募到本机应用数据目录。",
+      message: "浏览器预览未读取本机保存的 NGA 招募。"
     };
   }
   return invokeTauri<NgaSampleStorePayload>("risingstones_nga_load_samples", undefined, signal);
@@ -185,8 +194,8 @@ export async function saveNgaSamples(samples: NgaSample[], signal?: AbortSignal)
     return {
       samples,
       count: samples.length,
-      dataLocation: "浏览器开发模式仅保留当前页面内存样本。",
-      message: "当前运行环境不支持 Tauri 本机样本持久化。",
+      dataLocation: "浏览器开发模式仅保留当前页面内存数据。",
+      message: "浏览器预览未写入本机保存的 NGA 招募。",
       savedAt: new Date().toISOString()
     };
   }
@@ -199,7 +208,7 @@ export async function collectNgaSampleDetails(
   signal?: AbortSignal
 ): Promise<NgaDetailCollectPayload> {
   if (!isTauriRuntime()) {
-    throw new Error("NGA 正文补齐需要使用 Tauri 桌面版。");
+    throw new Error("NGA 正文补齐需要使用桌面版。");
   }
   return invokeTauri<NgaDetailCollectPayload>(
     "risingstones_nga_collect_sample_details",
@@ -219,7 +228,7 @@ export async function fetchNgaCollectionProgress(signal?: AbortSignal): Promise<
       currentUrl: "",
       collected: 0,
       maxItems: 0,
-      message: "当前运行环境不支持 Tauri NGA 采集进度。"
+      message: "当前运行环境不支持桌面版 NGA 读取进度。"
     };
   }
   return invokeTauri<NgaCollectionProgress>("risingstones_nga_collection_progress", undefined, signal);
@@ -227,7 +236,7 @@ export async function fetchNgaCollectionProgress(signal?: AbortSignal): Promise<
 
 export async function cancelNgaCollection(signal?: AbortSignal): Promise<NgaCollectPayload["progress"]> {
   if (!isTauriRuntime()) {
-    throw new Error("NGA 样本采集需要使用 Tauri 桌面版。");
+    throw new Error("NGA 页面读取需要使用桌面版。");
   }
   return invokeTauri<NgaCollectPayload["progress"]>("risingstones_nga_cancel_collect", undefined, signal);
 }
