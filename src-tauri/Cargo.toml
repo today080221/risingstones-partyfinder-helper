@@ -2,7 +2,7 @@
 name = "risingstones-partyfinder-helper"
 version = "0.1.11"
 description = "FF14 国服石之家副本招募桌面筛选工具"
-authors = ["RisingStones PartyFinder Helper Contributors"]
+authors = ["菜菜的橙子", "risingstones-partyfinder-helper contributors"]
 license = "MIT"
 repository = "https://github.com/today080221/risingstones-partyfinder-helper"
 edition = "2021"

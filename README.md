@@ -97,15 +97,18 @@ release/risingstones-partyfinder-helper-v0.1.11-desktop-win-x64-portable.zip
 
 ## 功能概览
 
-- 官方条件：
+- 数据来源：
+  - 右上角“聚合检索”可按所选来源统一拉取石之家和 NGA
+  - 结果来源支持多选；石之家和 NGA 默认同时启用
+- 数据范围：
   - 副本类型
   - 副本名称
   - 招募大区
-  - 官方标签
   - 队伍构成
   - 位置
   - 24 人团队 A/B/C
 - 本地筛选：
+  - 标签/类型筛选，统一作用于石之家标签和 NGA 解析标签
   - 进度关键词，支持包含和 `-排除`
   - 攻略关键词，支持包含和 `-排除`
   - 全局不包含关键词
@@ -114,6 +117,7 @@ release/risingstones-partyfinder-helper-v0.1.11-desktop-win-x64-portable.zip
   - 我的职业可进
   - 默认开启的无重复职业
   - 指定空缺位置
+  - “玩家求职”视图会合并石之家求职标签和 NGA 求职帖
 - 结果卡片：
   - 副本、进度、攻略、时间
   - 当前队伍构成
@@ -206,7 +210,7 @@ docs/                   中文项目文档链
 
 ## 许可
 
-本项目代码以 MIT License 发布，详见 `LICENSE`。
+本项目以 MIT License 发布；再分发源码或二进制时需保留 `LICENSE` 中的版权与许可声明。
 
 本项目使用的第三方依赖和发布包运行时说明见 `THIRD_PARTY_NOTICES.md`。
 

@@ -5,6 +5,9 @@ build/
 .cache/
 .vite/
 coverage/
+playwright-report/
+test-results/
+tauri-dev.log
 *.log
 .env
 .env.local
