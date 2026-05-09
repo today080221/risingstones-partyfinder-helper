@@ -55,6 +55,8 @@
 - 回归：`npm test` 129/129 passed，`npm run build` passed，`cargo test --manifest-path src-tauri/Cargo.toml` 10/10 passed。
 - 最新 review 发现：启用 NGA 启动自动读取时，若窗口状态先于本地 cache 读取完成，自动读取会用空样本列表作为合并基线，存在覆盖本地已保存招募的风险。
 - 修复：启动自动读取路径和普通启动复核一样等待 `ngaSamplesLoaded` 后再执行，确保保存合并基线已经来自本地 cache。
+- 最新 review 发现：单地区读取时仍会把 lifecycle 作用域留空，若本地区扫满活跃窗口，其他未扫描地区的旧样本也可能被归档或清理。
+- 修复：只要本轮实际扫描到招募板，就把已扫描招募板 URL 传给 lifecycle；单地区和多地区都只处理本轮确认扫过的地区。
 
 ## Merge And Release Readiness
 

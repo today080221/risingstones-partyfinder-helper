@@ -970,7 +970,7 @@ export function App() {
           scannedCount: scannedThisRun,
           scannedAt: startedAt,
           archiveAfterDays: ngaSettings.recentActiveDays,
-          scopedBoardUrls: boardUrls.length > 1 ? [...scannedBoardUrls] : undefined
+          scopedBoardUrls: scannedBoardUrls.size > 0 ? [...scannedBoardUrls] : undefined
         });
         archivedThisRun = lifecycleResult.archivedCount;
         deletedThisRun = lifecycleResult.deletedCount;
