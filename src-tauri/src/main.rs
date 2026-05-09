@@ -666,25 +666,32 @@ async fn risingstones_nga_collect_visible_samples(
     let window = app
         .get_webview_window(NGA_WINDOW_LABEL)
         .ok_or_else(|| "请先打开 NGA 窗口。".to_string())?;
-    let current_url = window
+    let mut current_url = window
         .url()
         .map_err(|error| format!("NGA 当前页面地址读取失败：{error}"))?;
-    if !is_supported_nga_collect_url(&current_url) {
-        if extract_nga_interstitial_target(&current_url).is_some() {
-            return Err("当前位于继续浏览页，请在 NGA 窗口继续浏览后再读取。".to_string());
-        }
-        return Err("当前页面不是受支持的 NGA 招募板或帖子详情。".to_string());
-    }
-    let _run_guard = acquire_nga_collect_run(state.inner())?;
-
     let max_items = max_items.clamp(1, NGA_MAX_ITEMS_LIMIT);
     let interval =
         request_interval_ms.clamp(NGA_MIN_REQUEST_INTERVAL_MS, NGA_MAX_REQUEST_INTERVAL_MS);
     let recent_active_days = recent_active_days.clamp(0, 180);
     let refresh_interval_hours = refresh_interval_hours.unwrap_or(12).clamp(1, 168);
     let auto_handle_interstitial = auto_handle_interstitial.unwrap_or(false);
+    let entry_target = resolve_nga_collect_entry_target(&current_url, auto_handle_interstitial)?;
+    let _run_guard = acquire_nga_collect_run(state.inner())?;
+
     let cache_index = build_nga_cache_index(cached_samples.unwrap_or_default());
     let started_at = now_iso();
+    if let NgaCollectEntryTarget::Interstitial { target_url } = entry_target {
+        current_url = handle_nga_interstitial_before_collect(
+            &window,
+            &state,
+            &current_url,
+            &target_url,
+            interval,
+            &started_at,
+            max_items,
+        )
+        .await?;
+    }
     set_nga_progress(
         &state,
         json!({
@@ -831,6 +838,85 @@ async fn risingstones_nga_collect_visible_samples(
         "warnings": warnings,
         "fetchedAt": now_iso()
     }))
+}
+
+#[derive(Debug)]
+enum NgaCollectEntryTarget {
+    Ready,
+    Interstitial { target_url: Url },
+}
+
+fn resolve_nga_collect_entry_target(
+    current_url: &Url,
+    auto_handle_interstitial: bool,
+) -> Result<NgaCollectEntryTarget, String> {
+    if is_supported_nga_collect_url(current_url) {
+        return Ok(NgaCollectEntryTarget::Ready);
+    }
+    if let Some(target_url) = extract_nga_interstitial_target(current_url) {
+        if auto_handle_interstitial {
+            return Ok(NgaCollectEntryTarget::Interstitial { target_url });
+        }
+        return Err("当前位于继续浏览页，请在 NGA 窗口继续浏览后再读取。".to_string());
+    }
+    Err("当前页面不是受支持的 NGA 招募板或帖子详情。".to_string())
+}
+
+async fn handle_nga_interstitial_before_collect(
+    window: &tauri::WebviewWindow,
+    state: &tauri::State<'_, NgaCollectState>,
+    current_url: &Url,
+    target_url: &Url,
+    interval: u64,
+    started_at: &str,
+    max_items: usize,
+) -> Result<Url, String> {
+    let should_try = state
+        .inner()
+        .handled_interstitial_urls
+        .lock()
+        .map(|mut handled| handled.insert(current_url.to_string()))
+        .unwrap_or(false);
+    if !should_try {
+        return Err("继续浏览页已尝试处理但尚未回到目标页面，请在 NGA 窗口手动继续浏览后再读取。".to_string());
+    }
+
+    let clicked = click_nga_interstitial_continue(window)?;
+    if !clicked {
+        return Err("未找到明确的继续浏览按钮，请在 NGA 窗口手动继续浏览后再读取。".to_string());
+    }
+
+    let attempts = (45_000_u64 / interval.max(1)).clamp(3, 45);
+    for attempt in 1..=attempts {
+        if state.inner().cancelled.load(Ordering::SeqCst) {
+            return Err("NGA 读取已取消。".to_string());
+        }
+        set_nga_progress(
+            state,
+            json!({
+                "status": "collecting",
+                "currentUrl": current_url.to_string(),
+                "collected": 0,
+                "maxItems": max_items,
+                "message": format!("已处理继续浏览页，等待回到目标页面；第 {}/{} 次检查。", attempt, attempts),
+                "startedAt": started_at
+            }),
+        )?;
+        tokio::time::sleep(Duration::from_millis(interval)).await;
+        let next_url = window
+            .url()
+            .map_err(|error| format!("NGA 当前页面地址读取失败：{error}"))?;
+        if is_supported_nga_collect_url(&next_url) {
+            return Ok(next_url);
+        }
+        if let Some(next_target) = extract_nga_interstitial_target(&next_url) {
+            if next_target.as_str() != target_url.as_str() {
+                break;
+            }
+        }
+    }
+
+    Err("已尝试处理继续浏览页，但仍未回到可读取的 NGA 招募页，请在 NGA 窗口手动处理后再读取。".to_string())
 }
 
 #[tauri::command]
@@ -3233,6 +3319,34 @@ mod tests {
         let unsupported_nga_page =
             Url::parse("https://bbs.nga.cn/misc/adpage_insert_2.html?https://bbs.nga.cn/misc/foo.php").unwrap();
         assert!(extract_nga_interstitial_target(&unsupported_nga_page).is_none());
+    }
+
+    #[test]
+    fn collect_entry_honors_auto_handle_for_interstitial_pages() {
+        let url = Url::parse(
+            "https://bbs.nga.cn/misc/adpage_insert_2.html?https://bbs.nga.cn/read.php?tid=46723623",
+        )
+        .unwrap();
+        let disabled = resolve_nga_collect_entry_target(&url, false).unwrap_err();
+        assert!(disabled.contains("继续浏览页"));
+
+        let enabled = resolve_nga_collect_entry_target(&url, true).unwrap();
+        match enabled {
+            NgaCollectEntryTarget::Interstitial { target_url } => {
+                assert_eq!(target_url.as_str(), "https://bbs.nga.cn/read.php?tid=46723623");
+            }
+            NgaCollectEntryTarget::Ready => panic!("继续浏览页不应被当作已就绪页面"),
+        }
+    }
+
+    #[test]
+    fn collect_entry_still_rejects_unsupported_interstitial_targets() {
+        let url = Url::parse(
+            "https://bbs.nga.cn/misc/adpage_insert_2.html?https://example.com/read.php?tid=46723623",
+        )
+        .unwrap();
+        let error = resolve_nga_collect_entry_target(&url, true).unwrap_err();
+        assert!(error.contains("不是受支持"));
     }
 
     #[test]
