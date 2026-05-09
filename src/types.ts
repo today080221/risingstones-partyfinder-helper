@@ -207,6 +207,11 @@ export interface NgaSample {
   contentHash?: string;
   closedAt?: string;
   sourceBoardUrl?: string;
+  lastBoardSeenAt?: string;
+  lastBoardRank?: number;
+  lastFullWindowScanAt?: string;
+  archivedAt?: string;
+  archiveReason?: string;
 }
 
 export interface NgaSampleCandidate {
@@ -251,6 +256,9 @@ export interface NgaCachedTopic {
   topicId: string;
   updatedAt?: string;
   lastCheckedAt?: string;
+  lastBoardSeenAt?: string;
+  lastBoardRank?: number;
+  archivedAt?: string;
   hasBody: boolean;
   contentHash?: string;
   sourceBoardUrl?: string;
@@ -271,6 +279,10 @@ export interface NgaCollectionProgress {
   checked?: number;
   cacheHits?: number;
   pendingRefresh?: number;
+  fastScanned?: number;
+  reviewed?: number;
+  archived?: number;
+  deleted?: number;
   startedAt?: string;
   finishedAt?: string;
 }

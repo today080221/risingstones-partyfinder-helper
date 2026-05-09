@@ -17,19 +17,20 @@
 - Right-side primary action is now “聚合检索”: it follows the left-side source multi-select, skips Stone Home with a warning when no official dungeon is selected, and still allows NGA-only aggregation.
 - NGA source settings are compact by default: region multi-select, desktop availability summary, saved recruit count, and progress stay visible; advanced collection parameters and developer diagnostics are folded.
 - NGA defaults are now 1 second page interval, 500 total items per NGA aggregate run, and detail/body collection enabled.
-- NGA aggregate now defaults to scanning recently active topics from the last 14 days. The list snapshot stores `updatedAt`; older topics are skipped before detail/body reading when the list page exposes enough activity data.
+- NGA aggregate now defaults to a metadata fast-scan of the active window. `maxItems` is the active-window size, default 500; cache hits update board-seen metadata without refreshing the detail-review timestamp.
 - NGA cache-first refresh is now part of the desktop flow: saved rows render immediately after frontend reload, and topics older than the default 12-hour review interval, missing body, or uncertain state are queued for background review.
-- Aggregate reading opens the NGA reading window minimized by default, scans new topics first, then reviews old cached topics. Manual “打开 NGA” still opens a normal visible window.
+- Aggregate reading opens the NGA reading window minimized by default, scans board metadata first, opens details for cache-miss or changed topics, then reviews old cached topics that are missing body or due for review. Manual “打开 NGA” still opens a normal visible window.
+- Board metadata scanning keeps the previously verified main-page topic-link selectors. If a rendered board page yields zero topics, it retries the same page briefly, reports candidate and next-link counts, then stops instead of following deep pages with zero extracted topics.
 - Sidebar order is now data sources, data range, then universal recruitment filters. Stone Home label selection is local-only; Stone Home rows tagged as seeking are included in the player-seeking view.
 - Universal filters now put tag/type and practical time constraints first. Legacy text keyword filters remain available under folded advanced filters.
 - Data range only exposes dungeon type/name in normal mode. Stone Home area and position request filters were removed from normal fetch; area preference and 24-player A/B/C team preference are advanced local filters.
 - NGA aggregate waits for the visible page to land on a supported board/post. `misc/adpage_insert_2.html?...` continuation pages are retryable; the tool first attempts the page continue button and only asks the user when that fails.
 - NGA detail body extraction uses first floor plus useful original-author follow-ups, filtering bump/placeholder replies; full-thread pagination is intentionally out of scope.
 - NGA card titles use the parsed dungeon name; subtitles and author/team display are cleaned to remove NGA level, prestige, registration date, and similar author metadata.
-- Local additive sample cache stores parser fields plus review metadata (`lastCheckedAt`, `lastSeenAt`, `detailFetchedAt`, `contentHash`, `closedAt`, `sourceBoardUrl`) for cache-aware refresh.
+- Local additive sample cache stores parser fields plus review metadata (`lastCheckedAt`, `lastSeenAt`, `detailFetchedAt`, `contentHash`, `closedAt`, `sourceBoardUrl`, `lastBoardSeenAt`, `lastBoardRank`, `lastFullWindowScanAt`, `archivedAt`, `archiveReason`) for cache-aware refresh and lifecycle cleanup.
 - Result rendering now uses a virtualized window-scroll list with stable row IDs, per-card update highlight, and scroll-anchor compensation.
 - Filter sidebar keeps tag/type filters to a four-row preview with selected tags prioritized; the data-source panel can collapse to a compact source/view/NGA cache summary.
-- Cache review status separates NGA saved rows from current Stone Home rows, and pending refresh excludes already confirmed closed cached samples.
+- Cache review status separates NGA saved rows from current Stone Home rows. Pending refresh excludes already confirmed closed or archived cached samples; archived samples are hidden from normal result rows.
 - Parser v1 with rules, dictionaries, and heuristics for:
   - team recruitment
   - player seeking team
@@ -54,23 +55,26 @@
 
 ## Latest Validation
 
-- `npm test`: 108 tests passed.
+- `npm test`: 125 tests passed.
 - `npm run build`: passed.
 - `cargo check --manifest-path src-tauri/Cargo.toml`: passed.
-- `cargo test --manifest-path src-tauri/Cargo.toml`: 6 tests passed.
-- `npm run test:e2e`: 7 tests passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml`: 10 tests passed.
+- `npm run test:e2e`: 9 tests passed.
 - `npm run validate:nga-parser`: 30 curated fixtures, 213 structured assertions, 213 passed.
-- The parser harness curated checks passed. The local saved sample pool is currently 504 total samples, 503 with body, and 261 high-confidence effective rows; the command exits non-zero only because the old local sample baseline expected 396 rows.
+- The parser harness curated checks passed. The local saved sample pool is currently 507 total samples, 507 with body, and 264 high-confidence effective rows; the command exits non-zero only because the old local sample baseline expected 396 rows.
 - Curated parser accuracy is 100.0% on the current hand-labeled edge cases, Wilson 95% confidence interval 98.2%-100.0%.
 
 ## 2026-05-09 Active Scan And Filter Follow-up
 
-- NGA visible-window board reading now tracks scanned topics separately from kept samples. `maxItems` is the scan budget, so a run can scan up to 500 topics while only retaining posts that pass recent-active and recruitment-signal filters.
+- NGA visible-window board reading now tracks scanned topics separately from kept samples. `maxItems` is the active-window metadata scan size, so a run can scan up to 500 topics while only opening detail pages for cache-miss, metadata-changed, body-missing, or review-due topics.
 - `updatedAt` is parsed from board rows and detail pages by taking the latest visible absolute timestamp from that rendered row/page. If no timestamp can be parsed, the topic is kept eligible to avoid dropping ambiguous rows.
-- When all parsed topics on two consecutive board pages are older than the configured recent-active window, the reader stops paging that board.
+- Metadata-only cache hits refresh `lastBoardSeenAt`, `lastBoardRank`, `updatedAt`, and `lastSeenAt`; they do not refresh `lastCheckedAt` or `detailFetchedAt`.
+- List metadata only opens detail when title and active time both change, or when the cached topic is missing body or due for review. Body hash is only meaningful after detail body has already been read.
+- Detail body extraction reads the first floor plus original-author follow-ups; same-topic later pages are followed with a small cap to collect useful original-author additions.
+- A full active-window scan can archive samples that have not appeared in the active window beyond the advanced archive-day setting, default 14 days and disabled with 0. Archived samples are hidden from normal UI, and 30-day-old archived/inactive samples can be cleaned from cache.
 - Cards now derive visible tags through one shared tag vocabulary for Stone Home and NGA. Stone Home rows can get lightweight tags from official labels and text such as progress, time, strategy, and team name.
 - Stone Home rows in the seeking view use “可用职业/可用位置” labels just like NGA seeking rows.
-- Current uncommitted pass adds cache-aware NGA review, minimized aggregate reading, automatic continuation-page handling, virtualized results, and updated docs/tests. Do not revert these when continuing.
+- Current pass adds metadata fast-scan, cache lifecycle archive/cleanup, active-window wording, zero-topic board scan protection, and updated docs/tests. Do not revert these when continuing.
 - Result-page top status now carries aggregate read progress; the sidebar keeps only compact counts and controls.
 
 ## Next Thread Starting Point

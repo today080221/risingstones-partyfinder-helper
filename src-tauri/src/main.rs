@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use chrono::{Duration as ChronoDuration, NaiveDate, TimeZone, Utc};
+use chrono::{Duration as ChronoDuration, Utc};
+#[cfg(test)]
+use chrono::{NaiveDate, TimeZone};
 use reqwest::header::{ACCEPT, ACCEPT_ENCODING, ORIGIN, REFERER, USER_AGENT};
 use serde_json::{json, Map, Value};
 use std::{
@@ -43,6 +45,7 @@ const NGA_MIN_REQUEST_INTERVAL_MS: u64 = 500;
 const NGA_MAX_REQUEST_INTERVAL_MS: u64 = 15000;
 const NGA_MAX_ITEMS_LIMIT: usize = 1500;
 const NGA_EVAL_TIMEOUT_SECS: u64 = 8;
+const NGA_DETAIL_EXTRA_PAGE_LIMIT: usize = 3;
 
 #[derive(Default)]
 struct NgaCollectState {
@@ -52,6 +55,7 @@ struct NgaCollectState {
 
 #[derive(Clone, Default)]
 struct NgaCachedTopic {
+    title: String,
     updated_at: String,
     last_checked_at: String,
     has_body: bool,
@@ -66,6 +70,9 @@ struct NgaCollectStats {
     checked: usize,
     cache_hits: usize,
     pending_refresh: usize,
+    reviewed: usize,
+    archived: usize,
+    deleted: usize,
 }
 
 #[tauri::command]
@@ -675,12 +682,16 @@ async fn risingstones_nga_collect_visible_samples(
             stats.scanned
         )
     } else if include_details {
-        format!(
-            "已扫描 {} 个主题，新增 {} 条，复核 {} 条。",
-            stats.scanned, stats.added, stats.checked
-        )
+        if stats.added == 0 && stats.reviewed == 0 {
+            format!("已快扫活跃窗口 {} 个主题，无需打开正文。", stats.scanned)
+        } else {
+            format!(
+                "已快扫 {} 个主题，新帖 {} 条，复核 {} 条。",
+                stats.scanned, stats.added, stats.reviewed
+            )
+        }
     } else {
-        format!("已扫描 {} 个主题，新增 {} 条。", stats.scanned, stats.added)
+        format!("已快扫 {} 个主题，新帖 {} 条。", stats.scanned, stats.added)
     };
     if samples.is_empty() {
         warnings.push("当前页面没有识别到帖子链接或正文。".to_string());
@@ -699,6 +710,10 @@ async fn risingstones_nga_collect_visible_samples(
         "checked": stats.checked,
         "cacheHits": stats.cache_hits,
         "pendingRefresh": stats.pending_refresh,
+        "fastScanned": stats.scanned,
+        "reviewed": stats.reviewed,
+        "archived": stats.archived,
+        "deleted": stats.deleted,
         "startedAt": started_at,
         "finishedAt": now_iso()
     });
@@ -1542,6 +1557,14 @@ fn is_nga_board_url(url: &Url) -> bool {
     path.rsplit('/').next().unwrap_or(path.as_str()) == "thread.php"
 }
 
+fn is_nga_read_url(url: &Url) -> bool {
+    if !is_supported_nga_collect_url(url) {
+        return false;
+    }
+    let path = url.path().to_ascii_lowercase();
+    path.rsplit('/').next().unwrap_or(path.as_str()) == "read.php"
+}
+
 fn is_supported_nga_board_stid(value: &str) -> bool {
     let value = value.trim();
     value == NGA_RECRUIT_STID_CN
@@ -1709,6 +1732,7 @@ fn close_nga_popup_windows(app: &AppHandle) {
 struct NgaPageSnapshot {
     samples: Vec<Value>,
     next_url: Option<Url>,
+    diagnostics: Value,
 }
 
 async fn collect_nga_board_samples(
@@ -1717,7 +1741,7 @@ async fn collect_nga_board_samples(
     start_url: &Url,
     max_items: usize,
     interval: u64,
-    recent_active_days: i64,
+    _recent_active_days: i64,
     refresh_interval_hours: i64,
     cache_index: &BTreeMap<String, NgaCachedTopic>,
     started_at: &str,
@@ -1727,7 +1751,6 @@ async fn collect_nga_board_samples(
     let mut checked_metadata = Vec::new();
     let mut stats = NgaCollectStats::default();
     let mut scanned = 0usize;
-    let mut stale_pages = 0usize;
     let mut seen = BTreeSet::new();
     let mut visited_pages = BTreeSet::new();
     let mut expected_url = start_url.clone();
@@ -1767,40 +1790,103 @@ async fn collect_nga_board_samples(
                 "currentUrl": window.url().map(|url| url.to_string()).unwrap_or_else(|_| expected_url.to_string()),
                 "collected": scanned,
                 "maxItems": max_items,
-                "message": format!("正在扫描招募板第 {} 页，已扫描 {}/{} 条，新招募 {} 条，待复核 {} 条。", page_index, scanned, max_items, new_or_changed.len(), refresh_queue.len()),
+                "message": format!("正在快扫招募板第 {} 页，已快扫 {}/{} 个主题，新帖 {} 条，复核 {} 条。", page_index, scanned, max_items, stats.added, stats.reviewed),
                 "added": stats.added,
                 "updated": stats.updated,
                 "checked": stats.checked,
                 "cacheHits": stats.cache_hits,
                 "pendingRefresh": stats.pending_refresh,
+                "fastScanned": stats.scanned,
+                "reviewed": stats.reviewed,
+                "archived": stats.archived,
+                "deleted": stats.deleted,
                 "startedAt": started_at
             }),
         )?;
 
         let remaining = max_items.saturating_sub(scanned);
-        let snapshot = eval_nga_page_snapshot(window, remaining)?;
-        let page_samples = sanitize_nga_samples_with_metadata(
-            snapshot.samples,
+        let mut snapshot = eval_nga_page_snapshot(window, remaining)?;
+        let mut page_samples = sanitize_nga_samples_with_metadata(
+            snapshot.samples.clone(),
             remaining,
             Some(start_url),
             started_at,
         );
-        let page_is_stale = recent_active_days > 0
-            && !page_samples.is_empty()
-            && page_samples.iter().all(|sample| {
-                parse_nga_activity_time(&read_string(sample, "updatedAt"))
-                    .map(|timestamp| !is_recent_nga_activity(timestamp, recent_active_days))
-                    .unwrap_or(false)
-            });
+        let mut empty_attempt = 1usize;
+        while page_samples.is_empty() && empty_attempt < 3 {
+            let raw_topic_links = read_usize(&snapshot.diagnostics, "rawTopicLinks");
+            let raw_fallback_links = read_usize(&snapshot.diagnostics, "rawFallbackLinks");
+            let next_links = read_usize(&snapshot.diagnostics, "nextLinks");
+            set_nga_progress(
+                state,
+                json!({
+                    "status": "collecting",
+                    "currentUrl": window.url().map(|url| url.to_string()).unwrap_or_else(|_| expected_url.to_string()),
+                    "collected": scanned,
+                    "maxItems": max_items,
+                    "message": format!("招募板第 {} 页暂未识别到主题，等待页面内容稳定；候选链接 {}，备用链接 {}，下一页链接 {}，第 {}/3 次。", page_index, raw_topic_links, raw_fallback_links, next_links, empty_attempt),
+                    "added": stats.added,
+                    "updated": stats.updated,
+                    "checked": stats.checked,
+                    "cacheHits": stats.cache_hits,
+                    "pendingRefresh": stats.pending_refresh,
+                    "fastScanned": stats.scanned,
+                    "reviewed": stats.reviewed,
+                    "archived": stats.archived,
+                    "deleted": stats.deleted,
+                    "startedAt": started_at
+                }),
+            )?;
+            tokio::time::sleep(Duration::from_millis(interval)).await;
+            if state.cancelled.load(Ordering::SeqCst) {
+                cancelled = true;
+                break;
+            }
+            snapshot = eval_nga_page_snapshot(window, remaining)?;
+            page_samples = sanitize_nga_samples_with_metadata(
+                snapshot.samples.clone(),
+                remaining,
+                Some(start_url),
+                started_at,
+            );
+            empty_attempt += 1;
+        }
+        if cancelled {
+            break;
+        }
+        if page_samples.is_empty() {
+            let raw_topic_links = read_usize(&snapshot.diagnostics, "rawTopicLinks");
+            let raw_fallback_links = read_usize(&snapshot.diagnostics, "rawFallbackLinks");
+            let accepted_topics = read_usize(&snapshot.diagnostics, "acceptedTopics");
+            let next_links = read_usize(&snapshot.diagnostics, "nextLinks");
+            set_nga_progress(
+                state,
+                json!({
+                    "status": "collecting",
+                    "currentUrl": window.url().map(|url| url.to_string()).unwrap_or_else(|_| expected_url.to_string()),
+                    "collected": scanned,
+                    "maxItems": max_items,
+                    "message": format!("招募板第 {} 页没有识别到主题，已停止继续翻页。候选链接 {}，备用链接 {}，有效主题 {}，下一页链接 {}。", page_index, raw_topic_links, raw_fallback_links, accepted_topics, next_links),
+                    "added": stats.added,
+                    "updated": stats.updated,
+                    "checked": stats.checked,
+                    "cacheHits": stats.cache_hits,
+                    "pendingRefresh": stats.pending_refresh,
+                    "fastScanned": stats.scanned,
+                    "reviewed": stats.reviewed,
+                    "archived": stats.archived,
+                    "deleted": stats.deleted,
+                    "startedAt": started_at
+                }),
+            )?;
+            break;
+        }
         for sample in page_samples {
             if scanned >= max_items {
                 break;
             }
             scanned += 1;
             stats.scanned = scanned;
-            if !should_open_nga_detail_by_activity(&sample, recent_active_days) {
-                continue;
-            }
             let key = nga_sample_key(&sample);
             if key.is_empty() || seen.contains(&key) {
                 continue;
@@ -1810,17 +1896,19 @@ async fn collect_nga_board_samples(
                 NgaCacheAction::New => {
                     seen.insert(key);
                     stats.added += 1;
-                    new_or_changed.push(sample);
+                    new_or_changed.push(mark_nga_sample_seen(sample, started_at, scanned, false));
                 }
                 NgaCacheAction::Changed => {
                     seen.insert(key);
                     stats.updated += 1;
-                    new_or_changed.push(sample);
+                    stats.reviewed += 1;
+                    new_or_changed.push(mark_nga_sample_seen(sample, started_at, scanned, false));
                 }
                 NgaCacheAction::Refresh => {
                     seen.insert(key);
                     stats.pending_refresh += 1;
-                    refresh_queue.push(sample);
+                    stats.reviewed += 1;
+                    refresh_queue.push(mark_nga_sample_seen(sample, started_at, scanned, false));
                 }
                 NgaCacheAction::Checked => {
                     let cached_hash = cache_index
@@ -1830,23 +1918,15 @@ async fn collect_nga_board_samples(
                     seen.insert(key);
                     stats.checked += 1;
                     stats.cache_hits += 1;
-                    checked_metadata.push(mark_nga_sample_checked(
+                    checked_metadata.push(mark_nga_sample_seen(
                         set_nga_sample_content_hash(sample, &cached_hash),
                         started_at,
+                        scanned,
                         true,
                     ));
                 }
             }
         }
-        if page_is_stale {
-            stale_pages += 1;
-        } else {
-            stale_pages = 0;
-        }
-        if stale_pages >= 2 {
-            break;
-        }
-
         let Some(next_url) = snapshot.next_url else {
             break;
         };
@@ -1867,12 +1947,16 @@ async fn collect_nga_board_samples(
                 "currentUrl": next_url.to_string(),
                 "collected": scanned,
                 "maxItems": max_items,
-                "message": format!("正在翻到招募板第 {} 页，已扫描 {}/{} 条，新招募 {} 条，待复核 {} 条。", page_index, scanned, max_items, new_or_changed.len(), refresh_queue.len()),
+                "message": format!("正在翻到招募板第 {} 页，已快扫 {}/{} 个主题，新帖 {} 条，复核 {} 条。", page_index, scanned, max_items, stats.added, stats.reviewed),
                 "added": stats.added,
                 "updated": stats.updated,
                 "checked": stats.checked,
                 "cacheHits": stats.cache_hits,
                 "pendingRefresh": stats.pending_refresh,
+                "fastScanned": stats.scanned,
+                "reviewed": stats.reviewed,
+                "archived": stats.archived,
+                "deleted": stats.deleted,
                 "startedAt": started_at
             }),
         )?;
@@ -1911,12 +1995,20 @@ fn classify_nga_cache_action(
     let Some(cached) = cached else {
         return NgaCacheAction::New;
     };
+    let title = read_string(sample, "title");
     let updated_at = read_string(sample, "updatedAt");
     let content_hash = read_string(sample, "contentHash");
-    if (!updated_at.is_empty() && !cached.updated_at.is_empty() && updated_at != cached.updated_at)
-        || (!content_hash.is_empty()
-            && !cached.content_hash.is_empty()
-            && content_hash != cached.content_hash)
+    let sample_has_body = !read_string(sample, "body").trim().is_empty();
+    let title_changed = !title.is_empty() && !cached.title.is_empty() && title != cached.title;
+    let updated_at_changed =
+        !updated_at.is_empty() && !cached.updated_at.is_empty() && updated_at != cached.updated_at;
+    if title_changed && updated_at_changed {
+        return NgaCacheAction::Changed;
+    }
+    if sample_has_body
+        && !content_hash.is_empty()
+        && !cached.content_hash.is_empty()
+        && content_hash != cached.content_hash
     {
         return NgaCacheAction::Changed;
     }
@@ -1934,10 +2026,16 @@ fn is_nga_cache_due(last_checked_at: &str, refresh_interval_hours: i64) -> bool 
     timestamp.timestamp_millis() < cutoff.timestamp_millis()
 }
 
-fn mark_nga_sample_checked(mut sample: Value, checked_at: &str, skip_detail: bool) -> Value {
+fn mark_nga_sample_seen(
+    mut sample: Value,
+    seen_at: &str,
+    board_rank: usize,
+    skip_detail: bool,
+) -> Value {
     if let Some(object) = sample.as_object_mut() {
-        object.insert("lastSeenAt".to_string(), json!(checked_at));
-        object.insert("lastCheckedAt".to_string(), json!(checked_at));
+        object.insert("lastSeenAt".to_string(), json!(seen_at));
+        object.insert("lastBoardSeenAt".to_string(), json!(seen_at));
+        object.insert("lastBoardRank".to_string(), json!(board_rank));
         if skip_detail {
             object.insert("__skipDetail".to_string(), json!(true));
         }
@@ -2034,6 +2132,18 @@ async fn collect_nga_detail_samples(
         let detail_samples =
             sanitize_nga_samples_with_metadata(eval_nga_samples(window, 1)?, 1, None, started_at);
         if let Some(detail) = detail_samples.into_iter().next() {
+            let mut detail = merge_nga_detail_metadata(detail, &sample);
+            detail = collect_nga_topic_followup_pages(
+                window,
+                state,
+                &parsed_url,
+                detail,
+                interval,
+                started_at,
+                detailed.len(),
+                max_items,
+            )
+            .await?;
             let detail_body = read_string(&detail, "body");
             if !detail_body.trim().is_empty() {
                 detailed.push(detail);
@@ -2048,21 +2158,247 @@ async fn collect_nga_detail_samples(
     Ok((sanitize_nga_samples(detailed, max_items), cancelled))
 }
 
-fn should_open_nga_detail_by_activity(sample: &Value, recent_active_days: i64) -> bool {
-    if recent_active_days <= 0 {
-        return true;
+fn merge_nga_detail_metadata(mut detail: Value, source: &Value) -> Value {
+    if let Some(object) = detail.as_object_mut() {
+        for field in [
+            "sourceBoardUrl",
+            "lastBoardSeenAt",
+            "lastBoardRank",
+            "lastFullWindowScanAt",
+            "archivedAt",
+            "archiveReason",
+        ] {
+            let has_value = object
+                .get(field)
+                .map(|value| match value {
+                    Value::String(text) => !text.trim().is_empty(),
+                    Value::Number(number) => number.as_u64().unwrap_or_default() > 0,
+                    _ => true,
+                })
+                .unwrap_or(false);
+            if !has_value {
+                if let Some(value) = source.get(field) {
+                    object.insert(field.to_string(), value.clone());
+                }
+            }
+        }
     }
-    let updated_at = read_string(sample, "updatedAt");
-    parse_nga_activity_time(&updated_at)
-        .map(|timestamp| is_recent_nga_activity(timestamp, recent_active_days))
-        .unwrap_or(true)
+    detail
 }
 
-fn is_recent_nga_activity(timestamp_millis: i64, recent_active_days: i64) -> bool {
-    let cutoff = Utc::now() - ChronoDuration::days(recent_active_days);
-    timestamp_millis >= cutoff.timestamp_millis()
+async fn collect_nga_topic_followup_pages(
+    window: &tauri::WebviewWindow,
+    state: &tauri::State<'_, NgaCollectState>,
+    first_url: &Url,
+    mut detail: Value,
+    interval: u64,
+    started_at: &str,
+    collected: usize,
+    max_items: usize,
+) -> Result<Value, String> {
+    let topic_id = first_url
+        .query_pairs()
+        .find(|(key, _)| key == "tid")
+        .map(|(_, value)| value.to_string())
+        .unwrap_or_default();
+    if topic_id.is_empty() {
+        return Ok(detail);
+    }
+
+    let author = read_string(&detail, "author");
+    if author.trim().is_empty() {
+        return Ok(detail);
+    }
+
+    let mut visited_pages = BTreeSet::new();
+    visited_pages.insert(nga_page_visit_key(first_url));
+    let mut extra_bodies = Vec::new();
+
+    for page_index in 0..NGA_DETAIL_EXTRA_PAGE_LIMIT {
+        if state.cancelled.load(Ordering::SeqCst) {
+            break;
+        }
+        let Some(next_url) = eval_nga_topic_next_url(window, &topic_id)? else {
+            break;
+        };
+        if !visited_pages.insert(nga_page_visit_key(&next_url)) {
+            break;
+        }
+
+        set_nga_progress(
+            state,
+            json!({
+                "status": "collecting",
+                "currentUrl": next_url.to_string(),
+                "collected": collected,
+                "maxItems": max_items,
+                "message": format!("正在检查帖子后续第 {} 页的楼主补充。", page_index + 2),
+                "startedAt": started_at
+            }),
+        )?;
+        let target = serde_json::to_string(next_url.as_str())
+            .map_err(|error| format!("NGA 帖子后续页地址序列化失败：{error}"))?;
+        window
+            .eval(format!("location.assign({target});"))
+            .map_err(|error| format!("NGA 帖子后续页打开失败：{error}"))?;
+        tokio::time::sleep(Duration::from_millis(interval)).await;
+        let ready = wait_for_expected_nga_page(
+            window, state, &next_url, interval, started_at, collected, max_items,
+        )
+        .await?;
+        if !ready {
+            break;
+        }
+
+        let mut bodies = eval_nga_topic_author_followup_bodies(window, &author)?;
+        extra_bodies.append(&mut bodies);
+    }
+
+    if !extra_bodies.is_empty() {
+        let original_body = read_string(&detail, "body");
+        let mut parts = Vec::new();
+        if !original_body.trim().is_empty() {
+            parts.push(original_body);
+        }
+        parts.extend(extra_bodies);
+        let next_body = parts.join("\n\n");
+        let title = read_string(&detail, "title");
+        let updated_at = read_string(&detail, "updatedAt");
+        let author = read_string(&detail, "author");
+        let content_hash =
+            compute_nga_sample_content_hash(&title, &next_body, &updated_at, &author);
+        if let Some(object) = detail.as_object_mut() {
+            object.insert("body".to_string(), json!(next_body));
+            object.insert("contentHash".to_string(), json!(content_hash));
+        }
+    }
+    Ok(detail)
 }
 
+fn eval_nga_topic_next_url(
+    window: &tauri::WebviewWindow,
+    topic_id: &str,
+) -> Result<Option<Url>, String> {
+    let topic_json = serde_json::to_string(topic_id)
+        .map_err(|error| format!("NGA 主题 ID 序列化失败：{error}"))?;
+    let script = format!(
+        r#"
+(() => {{
+  const topicId = {topic_json};
+  const absoluteUrl = (value) => {{
+    try {{ return new URL(value || location.href, location.href).toString(); }} catch (_) {{ return ""; }}
+  }};
+  const idFromUrl = (url, key) => {{
+    try {{ return new URL(url).searchParams.get(key) || ""; }} catch (_) {{ return ""; }}
+  }};
+  const text = (node) => (node && node.textContent ? node.textContent.replace(/\s+/g, " ").trim() : "");
+  const currentUrl = absoluteUrl(location.href);
+  const currentPage = Number(idFromUrl(currentUrl, "page") || "1") || 1;
+  const candidates = [];
+  const links = Array.from(document.querySelectorAll("a[title*='加载下一页'], a[title*='下一页'], a[href*='read.php'][href*='page=']"));
+  for (const link of links) {{
+    const href = absoluteUrl(link.getAttribute("href"));
+    if (!href || idFromUrl(href, "tid") !== topicId) continue;
+    const page = Number(idFromUrl(href, "page") || "0") || 0;
+    if (page <= currentPage) continue;
+    const label = text(link);
+    const title = String(link.getAttribute("title") || "");
+    const className = String(link.className || "");
+    const likelyNext = /加载下一页|下一页/.test(title) || label.includes(">") || /uitxt1/.test(className) || page === currentPage + 1;
+    if (likelyNext) candidates.push({{ href, page }});
+  }}
+  candidates.sort((a, b) => a.page - b.page);
+  return candidates[0]?.href || "";
+}})()
+"#
+    );
+    let payload = eval_nga_script(window, &script, "NGA 帖子后续页地址读取")?;
+    let text = payload.as_str().unwrap_or_default();
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(Url::parse(text).ok().filter(is_nga_read_url))
+}
+
+fn eval_nga_topic_author_followup_bodies(
+    window: &tauri::WebviewWindow,
+    author: &str,
+) -> Result<Vec<String>, String> {
+    let author_json =
+        serde_json::to_string(author).map_err(|error| format!("NGA 作者序列化失败：{error}"))?;
+    let script = format!(
+        r#"
+(() => {{
+  const originalAuthor = {author_json};
+  const text = (node) => (node && node.textContent ? node.textContent.replace(/\s+/g, " ").trim() : "");
+  const authorKey = (value) => {{
+    const raw = String(value || "");
+    const uid = raw.match(/UID[:：]?\s*(\d+)/i) || raw.match(/#\d+\s*([^\s#]+)/);
+    return uid ? uid[1] : raw.replace(/\s+/g, "").slice(0, 40);
+  }};
+  const postIndexFrom = (node) => {{
+    const value = node && node.id ? node.id : "";
+    const match = value.match(/(\d+)/);
+    return match ? Number(match[1]) : 0;
+  }};
+  const isNoiseFloor = (value) => {{
+    const normalized = String(value || "").replace(/\s+/g, "");
+    return !normalized || normalized.length < 18 || /^(顶|帮顶|mark|蹲|插眼|收藏|前排|111+|纯顶|路过|dd|up)+$/i.test(normalized);
+  }};
+  const originalKey = authorKey(originalAuthor);
+  const contentNodes = Array.from(new Set(Array.from(document.querySelectorAll("[id^='postcontent'], .postcontent, .postbody"))));
+  const bodies = [];
+  const seen = new Set();
+  for (const node of contentNodes) {{
+    const index = postIndexFrom(node);
+    const poster = text(document.querySelector(`#posterinfo${{index}}`));
+    const body = text(node);
+    if (!body || isNoiseFloor(body)) continue;
+    if (originalKey && authorKey(poster) !== originalKey) continue;
+    if (seen.has(body)) continue;
+    seen.add(body);
+    bodies.push(body);
+  }}
+  return bodies;
+}})()
+"#
+    );
+    let payload = eval_nga_script(window, &script, "NGA 楼主补充读取")?;
+    Ok(payload
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|value| value.as_str().map(str::trim).map(str::to_string))
+        .filter(|text| !text.is_empty())
+        .collect())
+}
+
+fn eval_nga_script(
+    window: &tauri::WebviewWindow,
+    script: &str,
+    label: &str,
+) -> Result<Value, String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    window
+        .eval_with_callback(script, move |result| {
+            let _ = sender.send(result);
+        })
+        .map_err(|error| format!("{label}脚本执行失败：{error}"))?;
+    let payload = receiver
+        .recv_timeout(Duration::from_secs(NGA_EVAL_TIMEOUT_SECS))
+        .map_err(|_| format!("{label}超时。"))?;
+    let parsed: Value =
+        serde_json::from_str(&payload).map_err(|error| format!("{label}结果解析失败：{error}"))?;
+    if let Some(text) = parsed.as_str() {
+        if let Ok(nested) = serde_json::from_str::<Value>(text) {
+            return Ok(nested);
+        }
+    }
+    Ok(parsed)
+}
+
+#[cfg(test)]
 fn parse_nga_activity_time(value: &str) -> Option<i64> {
     let parts = value
         .split(|char: char| !char.is_ascii_digit())
@@ -2233,6 +2569,17 @@ fn eval_nga_page_snapshot(
   const forumId = idFromUrl(currentUrl, "fid");
   const topicId = idFromUrl(currentUrl, "tid");
   let nextUrl = "";
+  const diagnostics = {
+    documentCount: 1,
+    rawTopicLinks: 0,
+    rawFallbackLinks: 0,
+    acceptedTopics: 0,
+    rejectedNoTid: 0,
+    rejectedDuplicate: 0,
+    rejectedNavigation: 0,
+    rejectedNoTitle: 0,
+    nextLinks: 0
+  };
   const samples = [];
 
   if (topicId) {
@@ -2260,19 +2607,34 @@ fn eval_nga_page_snapshot(
     const currentPage = Number(idFromUrl(currentUrl, "page") || "1") || 1;
     const topicLinks = Array.from(document.querySelectorAll("a.topic[href*='read.php'][href*='tid=']"));
     const fallbackLinks = Array.from(document.querySelectorAll("a[href*='read.php?tid='], a[href*='read.php'][href*='tid=']"));
+    diagnostics.rawTopicLinks = topicLinks.length;
+    diagnostics.rawFallbackLinks = fallbackLinks.length;
     const links = topicLinks.length ? topicLinks : fallbackLinks;
     const seen = new Set();
     for (const link of links) {
       if (samples.length >= maxItems) break;
       const url = absoluteUrl(link.getAttribute("href"));
       const tid = idFromUrl(url, "tid");
-      if (!tid || tid === currentStid || seen.has(tid)) continue;
+      if (!tid || tid === currentStid) {
+        diagnostics.rejectedNoTid += 1;
+        continue;
+      }
+      if (seen.has(tid)) {
+        diagnostics.rejectedDuplicate += 1;
+        continue;
+      }
       const className = String(link.className || "");
-      if (!topicLinks.length && /nav_link|replies|silver|uitxt|txtbtn/i.test(className)) continue;
+      if (!topicLinks.length && /nav_link|replies|silver|uitxt|txtbtn/i.test(className)) {
+        diagnostics.rejectedNavigation += 1;
+        continue;
+      }
       seen.add(tid);
       const root = link.closest("tr, .topic, .thread, .row, li, article, div") || link.parentElement || document.body;
       const title = text(link);
-      if (!title || title.length < 4) continue;
+      if (!title || title.length < 4) {
+        diagnostics.rejectedNoTitle += 1;
+        continue;
+      }
       samples.push({
         title,
         body: "",
@@ -2283,8 +2645,10 @@ fn eval_nga_page_snapshot(
         forumId: idFromUrl(url, "fid") || forumId,
         topicId: tid
       });
+      diagnostics.acceptedTopics = samples.length;
     }
     const nextLinks = Array.from(document.querySelectorAll("a[title*='加载下一页'], a[href*='thread.php'][href*='page=']"));
+    diagnostics.nextLinks = nextLinks.length;
     const candidates = [];
     for (const link of nextLinks) {
       const href = absoluteUrl(link.getAttribute("href"));
@@ -2311,7 +2675,8 @@ fn eval_nga_page_snapshot(
     forumId: String(item.forumId || ""),
     topicId: String(item.topicId || "")
   }));
-  return { samples: normalizedSamples, nextUrl: String(nextUrl || "") };
+  diagnostics.acceptedTopics = normalizedSamples.length;
+  return { samples: normalizedSamples, nextUrl: String(nextUrl || ""), diagnostics };
 })()
 "##
     .replace("__MAX_ITEMS__", &max_items.to_string());
@@ -2341,6 +2706,7 @@ fn parse_eval_page_snapshot(payload: &str) -> Result<NgaPageSnapshot, String> {
         return Ok(NgaPageSnapshot {
             samples: array.clone(),
             next_url: None,
+            diagnostics: json!({}),
         });
     }
     let Some(object) = parsed.as_object() else {
@@ -2356,7 +2722,12 @@ fn parse_eval_page_snapshot(payload: &str) -> Result<NgaPageSnapshot, String> {
         .and_then(Value::as_str)
         .and_then(|value| Url::parse(value).ok())
         .filter(is_nga_board_url);
-    Ok(NgaPageSnapshot { samples, next_url })
+    let diagnostics = object.get("diagnostics").cloned().unwrap_or_else(|| json!({}));
+    Ok(NgaPageSnapshot {
+        samples,
+        next_url,
+        diagnostics,
+    })
 }
 
 fn sanitize_nga_samples(values: Vec<Value>, max_items: usize) -> Vec<Value> {
@@ -2387,6 +2758,15 @@ fn sanitize_nga_samples_with_metadata(
         let last_seen_at = limited_clean_string(&value, "lastSeenAt", 120);
         let detail_fetched_at = limited_clean_string(&value, "detailFetchedAt", 120);
         let closed_at = limited_clean_string(&value, "closedAt", 120);
+        let last_board_seen_at = limited_clean_string(&value, "lastBoardSeenAt", 120);
+        let last_board_rank = value
+            .get("lastBoardRank")
+            .and_then(Value::as_u64)
+            .and_then(|rank| usize::try_from(rank).ok())
+            .unwrap_or_default();
+        let last_full_window_scan_at = limited_clean_string(&value, "lastFullWindowScanAt", 120);
+        let archived_at = limited_clean_string(&value, "archivedAt", 120);
+        let archive_reason = limited_clean_string(&value, "archiveReason", 200);
         let explicit_source_board_url = limited_clean_string(&value, "sourceBoardUrl", 1000);
         let source_board_url = if explicit_source_board_url.is_empty() {
             fallback_source_board_url
@@ -2407,6 +2787,7 @@ fn sanitize_nga_samples_with_metadata(
             continue;
         }
         seen.insert(key);
+        let has_body = !body.trim().is_empty();
         samples.push(json!({
             "title": title,
             "body": body,
@@ -2416,12 +2797,17 @@ fn sanitize_nga_samples_with_metadata(
             "updatedAt": updated_at,
             "forumId": forum_id,
             "topicId": topic_id,
-            "lastCheckedAt": cache_time_or_fallback(last_checked_at, checked_at),
+            "lastCheckedAt": if has_body { cache_time_or_fallback(last_checked_at, checked_at) } else { last_checked_at },
             "lastSeenAt": cache_time_or_fallback(last_seen_at, checked_at),
-            "detailFetchedAt": if body.trim().is_empty() { detail_fetched_at } else { cache_time_or_fallback(detail_fetched_at, checked_at) },
+            "detailFetchedAt": if has_body { cache_time_or_fallback(detail_fetched_at, checked_at) } else { detail_fetched_at },
             "contentHash": if content_hash.is_empty() { compute_nga_sample_content_hash(&title, &body, &updated_at, &author) } else { content_hash },
             "closedAt": closed_at,
-            "sourceBoardUrl": source_board_url
+            "sourceBoardUrl": source_board_url,
+            "lastBoardSeenAt": last_board_seen_at,
+            "lastBoardRank": last_board_rank,
+            "lastFullWindowScanAt": last_full_window_scan_at,
+            "archivedAt": archived_at,
+            "archiveReason": archive_reason
         }));
     }
     samples
@@ -2447,6 +2833,7 @@ fn build_nga_cache_index(values: Vec<Value>) -> BTreeMap<String, NgaCachedTopic>
         index.insert(
             key,
             NgaCachedTopic {
+                title: limited_clean_string(&value, "title", 500),
                 updated_at: limited_clean_string(&value, "updatedAt", 120),
                 last_checked_at: limited_clean_string(&value, "lastCheckedAt", 120),
                 has_body: value
@@ -2625,6 +3012,13 @@ fn read_string(value: &Value, key: &str) -> String {
         .to_string()
 }
 
+fn read_usize(value: &Value, key: &str) -> usize {
+    value
+        .get(key)
+        .and_then(Value::as_u64)
+        .unwrap_or_default() as usize
+}
+
 fn fallback_string(value: &Value, primary: &str, fallback: &str) -> String {
     let primary_value = read_string(value, primary);
     if primary_value.is_empty() {
@@ -2700,6 +3094,17 @@ mod tests {
     }
 
     #[test]
+    fn preserves_board_snapshot_diagnostics() {
+        let snapshot = parse_eval_page_snapshot(
+            r#"{"samples":[],"nextUrl":"https://bbs.nga.cn/thread.php?stid=44366746&page=2","diagnostics":{"rawTopicLinks":0,"rawFallbackLinks":0,"acceptedTopics":0,"nextLinks":1}}"#,
+        )
+        .unwrap();
+        assert!(snapshot.samples.is_empty());
+        assert_eq!(read_usize(&snapshot.diagnostics, "rawTopicLinks"), 0);
+        assert_eq!(read_usize(&snapshot.diagnostics, "nextLinks"), 1);
+    }
+
+    #[test]
     fn parses_nga_activity_time() {
         let parsed = parse_nga_activity_time("2026-05-09 19:20").unwrap();
         let expected = Utc
@@ -2739,23 +3144,89 @@ mod tests {
     }
 
     #[test]
+    fn keeps_board_metadata_scan_out_of_last_checked_time() {
+        let board = Url::parse("https://bbs.nga.cn/thread.php?stid=44366746").unwrap();
+        let samples = sanitize_nga_samples_with_metadata(
+            vec![json!({
+                "title": "绝欧固定队招募",
+                "body": "",
+                "url": "https://bbs.nga.cn/read.php?tid=123",
+                "topicId": "123",
+                "updatedAt": "2026-05-09 19:20"
+            })],
+            10,
+            Some(&board),
+            "2026-05-09T12:00:00Z",
+        );
+        assert_eq!(samples.len(), 1);
+        assert_eq!(read_string(&samples[0], "lastCheckedAt"), "");
+        assert_eq!(
+            read_string(&samples[0], "lastSeenAt"),
+            "2026-05-09T12:00:00Z"
+        );
+
+        let seen = mark_nga_sample_seen(samples[0].clone(), "2026-05-09T13:00:00Z", 7, true);
+        assert_eq!(read_string(&seen, "lastCheckedAt"), "");
+        assert_eq!(
+            read_string(&seen, "lastBoardSeenAt"),
+            "2026-05-09T13:00:00Z"
+        );
+        assert_eq!(
+            seen.get("lastBoardRank")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            7
+        );
+        assert!(seen
+            .get("__skipDetail")
+            .and_then(Value::as_bool)
+            .unwrap_or(false));
+    }
+
+    #[test]
     fn classifies_cache_actions_for_new_changed_refresh_and_checked_topics() {
         let cached = NgaCachedTopic {
+            title: "绝欧固定队招募".to_string(),
             updated_at: "2026-05-09 19:20".to_string(),
             last_checked_at: Utc::now().to_rfc3339(),
             has_body: true,
             content_hash: "same".to_string(),
+            ..Default::default()
         };
-        let checked = json!({"topicId":"1","updatedAt":"2026-05-09 19:20","contentHash":"same"});
+        let checked = json!({"topicId":"1","title":"绝欧固定队招募","updatedAt":"2026-05-09 19:20","contentHash":"same"});
         assert!(matches!(
             classify_nga_cache_action(&checked, Some(&cached), 12),
             NgaCacheAction::Checked
         ));
 
-        let changed = json!({"topicId":"1","updatedAt":"2026-05-09 20:20","contentHash":"same"});
+        let list_metadata_with_empty_body_hash = json!({"topicId":"1","title":"绝欧固定队招募","updatedAt":"2026-05-09 19:20","contentHash":"list-only"});
         assert!(matches!(
-            classify_nga_cache_action(&changed, Some(&cached), 12),
+            classify_nga_cache_action(&list_metadata_with_empty_body_hash, Some(&cached), 12),
+            NgaCacheAction::Checked
+        ));
+
+        let body_hash_changed = json!({"topicId":"1","title":"绝欧固定队招募","body":"缺H1","updatedAt":"2026-05-09 19:20","contentHash":"changed"});
+        assert!(matches!(
+            classify_nga_cache_action(&body_hash_changed, Some(&cached), 12),
             NgaCacheAction::Changed
+        ));
+
+        let title_only_changed = json!({"topicId":"1","title":"绝欧固定队招募 7=1 H2","updatedAt":"2026-05-09 19:20","contentHash":"same"});
+        assert!(matches!(
+            classify_nga_cache_action(&title_only_changed, Some(&cached), 12),
+            NgaCacheAction::Checked
+        ));
+
+        let title_and_updated_at_changed = json!({"topicId":"1","title":"绝欧固定队招募 7=1 H2","updatedAt":"2026-05-09 20:20","contentHash":"same"});
+        assert!(matches!(
+            classify_nga_cache_action(&title_and_updated_at_changed, Some(&cached), 12),
+            NgaCacheAction::Changed
+        ));
+
+        let updated_at_only_changed = json!({"topicId":"1","title":"绝欧固定队招募","updatedAt":"2026-05-09 20:20","contentHash":"same"});
+        assert!(matches!(
+            classify_nga_cache_action(&updated_at_only_changed, Some(&cached), 12),
+            NgaCacheAction::Checked
         ));
 
         let missing_body = NgaCachedTopic {

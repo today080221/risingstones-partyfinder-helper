@@ -75,10 +75,13 @@
   NGA 提取器侧栏遮挡修复、欧区/大洋洲区/美区招募板入口补充和验证记录。
 
 - `worklog/2026-05-09-aggregate-search-nga-compact.md`
-  聚合检索入口、结果来源多选、侧栏顺序二次 compact、NGA 继续浏览页等待、开发诊断折叠和标题清洗改造记录。
+  聚合检索入口、结果来源多选、侧栏顺序二次 compact、NGA 继续浏览页等待、cache-first 快扫、归档清理和标题清洗改造记录。
 
 - `worklog/2026-05-09-parser-carry-license.md`
   `装甲车过本看不到我` Parser 极性修正、curated harness 覆盖和 MIT 许可归属更新记录。
+
+- `worklog/2026-05-10-nga-cache-merge-precheck.md`
+  NGA metadata 快扫、cache 生命周期、0 主题翻页保护和 merge/release 前 final QA 预检记录。
 
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。

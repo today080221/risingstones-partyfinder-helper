@@ -26,7 +26,12 @@ export const NGA_SAMPLE_FIELDS: Array<keyof NgaSample> = [
   "detailFetchedAt",
   "contentHash",
   "closedAt",
-  "sourceBoardUrl"
+  "sourceBoardUrl",
+  "lastBoardSeenAt",
+  "lastBoardRank",
+  "lastFullWindowScanAt",
+  "archivedAt",
+  "archiveReason"
 ];
 
 export const NGA_RECRUIT_BOARD_URLS = {
@@ -59,6 +64,8 @@ const MIN_REQUEST_INTERVAL_MS = 500;
 const MAX_REQUEST_INTERVAL_MS = 15000;
 const MIN_MAX_ITEMS = 1;
 export const NGA_MAX_SAMPLE_STORE_ITEMS = 1500;
+export const NGA_ARCHIVE_AFTER_DAYS = 14;
+export const NGA_DELETE_AFTER_DAYS = 30;
 const MAX_MAX_ITEMS = 1500;
 const MIN_REFRESH_INTERVAL_HOURS = 1;
 const MAX_REFRESH_INTERVAL_HOURS = 168;
@@ -548,7 +555,12 @@ export function sanitizeNgaSample<T extends Partial<Record<keyof NgaSample, unkn
     detailFetchedAt: cleanText(input.detailFetchedAt),
     contentHash: cleanIdentifier(input.contentHash),
     closedAt: cleanText(input.closedAt),
-    sourceBoardUrl: cleanUrl(input.sourceBoardUrl)
+    sourceBoardUrl: cleanUrl(input.sourceBoardUrl),
+    lastBoardSeenAt: cleanText(input.lastBoardSeenAt),
+    lastBoardRank: cleanPositiveInteger(input.lastBoardRank),
+    lastFullWindowScanAt: cleanText(input.lastFullWindowScanAt),
+    archivedAt: cleanText(input.archivedAt),
+    archiveReason: cleanText(input.archiveReason)
   };
   return {
     ...sample,
@@ -675,6 +687,9 @@ export function buildNgaCachedTopicIndex(samples: NgaSample[]): NgaCachedTopic[]
     topicId: sample.topicId,
     updatedAt: sample.updatedAt,
     lastCheckedAt: sample.lastCheckedAt,
+    lastBoardSeenAt: sample.lastBoardSeenAt,
+    lastBoardRank: sample.lastBoardRank,
+    archivedAt: sample.archivedAt,
     hasBody: Boolean(sample.body),
     contentHash: sample.contentHash || computeNgaSampleContentHash(sample),
     sourceBoardUrl: sample.sourceBoardUrl
@@ -688,6 +703,9 @@ export function getNgaSamplesPendingRefresh(
 ): NgaSample[] {
   const cutoff = now.getTime() - clampInteger(refreshIntervalHours, MIN_REFRESH_INTERVAL_HOURS, MAX_REFRESH_INTERVAL_HOURS) * 60 * 60 * 1000;
   return mergeNgaSamples(samples, NGA_MAX_SAMPLE_STORE_ITEMS).filter((sample) => {
+    if (sample.archivedAt) {
+      return false;
+    }
     if (sample.closedAt || isNgaSampleSoftClosed(sample)) {
       return false;
     }
@@ -4912,7 +4930,10 @@ export function analyzeNgaSamples(samples: NgaSample[], now = new Date()): NgaSa
 function buildFieldPresence(samples: NgaSample[]): NgaSampleAnalysisReport["fieldPresence"] {
   return Object.fromEntries(
     NGA_SAMPLE_FIELDS.map((field) => {
-      const present = samples.filter((sample) => Boolean(sample[field]?.trim())).length;
+      const present = samples.filter((sample) => {
+        const value = sample[field];
+        return typeof value === "number" ? Number.isFinite(value) && value > 0 : Boolean(cleanText(value));
+      }).length;
       const missing = samples.length - present;
       return [
         field,
@@ -5262,6 +5283,14 @@ function cleanIdentifier(value: unknown): string {
   return /^[\w-]{1,40}$/.test(text) ? text : "";
 }
 
+function cleanPositiveInteger(value: unknown): number | undefined {
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return undefined;
+  }
+  return Math.round(parsed);
+}
+
 function ngaSampleKey(sample: NgaSample): string {
   return sample.topicId || sample.url || `${sample.title}:${sample.author}`;
 }
@@ -5271,6 +5300,7 @@ function mergeNgaSamplePair(current: NgaSample, incoming: NgaSample): NgaSample 
   const incomingScore = ngaSampleCompletenessScore(incoming);
   const primary = incomingScore > currentScore ? incoming : current;
   const fallback = primary === incoming ? current : incoming;
+  const seenAgainAfterArchive = Boolean(incoming.lastBoardSeenAt && !incoming.archivedAt && current.archivedAt);
   return {
     title: primary.title || fallback.title,
     body: primary.body || fallback.body,
@@ -5285,7 +5315,12 @@ function mergeNgaSamplePair(current: NgaSample, incoming: NgaSample): NgaSample 
     detailFetchedAt: latestIsoish(primary.detailFetchedAt, fallback.detailFetchedAt),
     contentHash: primary.contentHash || fallback.contentHash || computeNgaSampleContentHash(primary),
     closedAt: latestIsoish(primary.closedAt, fallback.closedAt),
-    sourceBoardUrl: primary.sourceBoardUrl || fallback.sourceBoardUrl
+    sourceBoardUrl: primary.sourceBoardUrl || fallback.sourceBoardUrl,
+    lastBoardSeenAt: latestIsoish(primary.lastBoardSeenAt, fallback.lastBoardSeenAt),
+    lastBoardRank: primary.lastBoardRank ?? fallback.lastBoardRank,
+    lastFullWindowScanAt: latestIsoish(primary.lastFullWindowScanAt, fallback.lastFullWindowScanAt),
+    archivedAt: seenAgainAfterArchive ? "" : latestIsoish(primary.archivedAt, fallback.archivedAt),
+    archiveReason: seenAgainAfterArchive ? "" : primary.archiveReason || fallback.archiveReason
   };
 }
 
@@ -5319,6 +5354,100 @@ export function normalizeNgaCacheReviewSamples<T extends Partial<Record<keyof Ng
   });
 }
 
+export interface NgaCacheLifecycleOptions {
+  activeWindowSize: number;
+  scannedCount: number;
+  scannedAt?: string | Date;
+  now?: Date;
+  archiveAfterDays?: number;
+  deleteAfterDays?: number;
+}
+
+export interface NgaCacheLifecycleResult {
+  samples: NgaSample[];
+  archivedCount: number;
+  deletedCount: number;
+  archivedKeys: string[];
+  deletedKeys: string[];
+}
+
+export function isNgaSampleArchived(sample: NgaSample): boolean {
+  return Boolean(sanitizeNgaSample(sample).archivedAt);
+}
+
+export function applyNgaCacheLifecycle(
+  inputs: NgaSample[],
+  options: NgaCacheLifecycleOptions
+): NgaCacheLifecycleResult {
+  const now = options.now ?? new Date();
+  const scanAt =
+    options.scannedAt instanceof Date ? options.scannedAt : new Date(options.scannedAt || now.toISOString());
+  const scanTime = Number.isFinite(scanAt.getTime()) ? scanAt.getTime() : now.getTime();
+  const scanIso = new Date(scanTime).toISOString();
+  const activeWindowSize = clampInteger(options.activeWindowSize, MIN_MAX_ITEMS, MAX_MAX_ITEMS);
+  const scannedCount = Math.max(0, Math.round(Number(options.scannedCount) || 0));
+  const fullWindowScanned = scannedCount >= activeWindowSize;
+  const archiveAfterDays = options.archiveAfterDays ?? NGA_ARCHIVE_AFTER_DAYS;
+  const archiveEnabled = archiveAfterDays > 0;
+  const archiveCutoff = now.getTime() - archiveAfterDays * 24 * 60 * 60 * 1000;
+  const deleteCutoff = now.getTime() - (options.deleteAfterDays ?? NGA_DELETE_AFTER_DAYS) * 24 * 60 * 60 * 1000;
+  const archivedKeys: string[] = [];
+  const deletedKeys: string[] = [];
+  const kept: NgaSample[] = [];
+
+  for (const sample of mergeNgaSamples(inputs, NGA_MAX_SAMPLE_STORE_ITEMS)) {
+    const key = getNgaSampleKey(sample);
+    const archivedAt = parseNgaCacheTime(sample.archivedAt);
+    const lastActivity = getNgaSampleLastActivityTime(sample);
+    const seenAt = parseNgaCacheTime(sample.lastBoardSeenAt);
+    const seenInThisFullWindow = fullWindowScanned && seenAt !== undefined && seenAt >= scanTime - 60_000;
+    const deleteByArchiveAge = archivedAt !== undefined && archivedAt < deleteCutoff;
+    const deleteByInactiveAge =
+      archiveEnabled && fullWindowScanned && !seenInThisFullWindow && lastActivity !== undefined && lastActivity < deleteCutoff;
+
+    if (deleteByArchiveAge || deleteByInactiveAge) {
+      if (key) {
+        deletedKeys.push(key);
+      }
+      continue;
+    }
+
+    let next = sample;
+    const shouldArchive =
+      fullWindowScanned &&
+      archiveEnabled &&
+      !sample.archivedAt &&
+      !seenInThisFullWindow &&
+      lastActivity !== undefined &&
+      lastActivity < archiveCutoff;
+    if (shouldArchive) {
+      next = {
+        ...next,
+        archivedAt: scanIso,
+        archiveReason: `超过 ${archiveAfterDays} 天未在活跃窗口出现`
+      };
+      if (key) {
+        archivedKeys.push(key);
+      }
+    }
+    if (fullWindowScanned) {
+      next = {
+        ...next,
+        lastFullWindowScanAt: scanIso
+      };
+    }
+    kept.push(next);
+  }
+
+  return {
+    samples: mergeNgaSamples(kept, NGA_MAX_SAMPLE_STORE_ITEMS),
+    archivedCount: archivedKeys.length,
+    deletedCount: deletedKeys.length,
+    archivedKeys,
+    deletedKeys
+  };
+}
+
 function latestIsoish(a?: string, b?: string): string {
   const first = cleanText(a);
   const second = cleanText(b);
@@ -5336,6 +5465,43 @@ function latestIsoish(a?: string, b?: string): string {
   return firstTime >= secondTime ? first : second;
 }
 
+function parseNgaCacheTime(value?: string): number | undefined {
+  const text = cleanText(value);
+  if (!text) {
+    return undefined;
+  }
+  const native = Date.parse(text);
+  if (Number.isFinite(native)) {
+    return native;
+  }
+  const match = text.match(/(20\d{2})[-/年.](\d{1,2})[-/月.](\d{1,2})(?:\s+(\d{1,2})[:：](\d{2}))?/);
+  if (!match) {
+    return undefined;
+  }
+  const timestamp = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4] || 0),
+    Number(match[5] || 0)
+  ).getTime();
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+function getNgaSampleLastActivityTime(sample: NgaSample): number | undefined {
+  return [
+    sample.lastBoardSeenAt,
+    sample.updatedAt,
+    sample.lastSeenAt,
+    sample.detailFetchedAt,
+    sample.lastCheckedAt,
+    sample.publishedAt
+  ]
+    .map(parseNgaCacheTime)
+    .filter((value): value is number => value !== undefined)
+    .sort((a, b) => b - a)[0];
+}
+
 function ngaSampleCompletenessScore(sample: NgaSample): number {
   return (
     (sample.body ? Math.min(sample.body.length, 8000) : 0) +
@@ -5346,7 +5512,8 @@ function ngaSampleCompletenessScore(sample: NgaSample): number {
     (sample.forumId ? 10 : 0) +
     (sample.topicId ? 10 : 0) +
     (sample.lastCheckedAt ? 2 : 0) +
-    (sample.lastSeenAt ? 2 : 0)
+    (sample.lastSeenAt ? 2 : 0) +
+    (sample.lastBoardSeenAt ? 1 : 0)
   );
 }
 

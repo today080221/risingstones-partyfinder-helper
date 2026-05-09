@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_NGA_COLLECTION_SETTINGS,
   analyzeNgaSamples,
+  applyNgaCacheLifecycle,
   buildNgaCachedTopicIndex,
   classifyNgaSample,
   cleanNgaDisplayText,
   getNgaSamplesPendingRefresh,
+  isNgaSampleArchived,
   mergeNgaSamplesWithDiff,
   normalizeNgaCacheReviewSamples,
   normalizeNgaCollectionSettings,
@@ -1232,13 +1234,18 @@ describe("nga sample whitelist", () => {
     });
 
     expect(Object.keys(sample).sort()).toEqual([
+      "archiveReason",
+      "archivedAt",
       "author",
       "body",
       "closedAt",
       "contentHash",
       "detailFetchedAt",
       "forumId",
+      "lastBoardRank",
+      "lastBoardSeenAt",
       "lastCheckedAt",
+      "lastFullWindowScanAt",
       "lastSeenAt",
       "publishedAt",
       "sourceBoardUrl",
@@ -1401,6 +1408,21 @@ describe("nga cache refresh", () => {
     expect(pending.map((sample) => sample.topicId)).toEqual(["126", "127"]);
   });
 
+  it("keeps archived cached samples out of pending refresh", () => {
+    const samples = [
+      sanitizeNgaSample({
+        title: "绝欧固定队招募",
+        body: "缺H2 周末晚8-11",
+        url: "https://bbs.nga.cn/read.php?tid=129",
+        topicId: "129",
+        lastCheckedAt: "2026-05-08T08:00:00.000Z",
+        archivedAt: "2026-05-09T08:00:00.000Z"
+      })
+    ];
+
+    expect(getNgaSamplesPendingRefresh(samples, 12, new Date("2026-05-09T22:00:00.000Z"))).toHaveLength(0);
+  });
+
   it("fills closed metadata for legacy cached samples without refreshing check time", () => {
     const normalized = normalizeNgaCacheReviewSamples(
       [
@@ -1428,17 +1450,150 @@ describe("nga cache refresh", () => {
         body: "正文内容",
         url: "https://bbs.nga.cn/read.php?tid=123",
         topicId: "123",
-        lastCheckedAt: "2026-05-09T08:00:00.000Z"
+        lastCheckedAt: "2026-05-09T08:00:00.000Z",
+        lastBoardSeenAt: "2026-05-09T09:00:00.000Z",
+        lastBoardRank: 12
       })
     ]);
 
     expect(index).toEqual([
       expect.objectContaining({
         topicId: "123",
-        hasBody: true
+        hasBody: true,
+        lastBoardRank: 12
       })
     ]);
     expect(JSON.stringify(index)).not.toContain("正文内容");
+  });
+
+  it("keeps metadata fast-scan hits out of detail review timestamps", () => {
+    const result = mergeNgaSamplesWithDiff(
+      [
+        sanitizeNgaSample({
+          title: "绝欧固定队招募",
+          body: "缺H2",
+          url: "https://bbs.nga.cn/read.php?tid=123",
+          topicId: "123",
+          lastCheckedAt: "2026-05-09T08:00:00.000Z",
+          contentHash: "same"
+        })
+      ],
+      [
+        sanitizeNgaSample({
+          title: "绝欧固定队招募",
+          url: "https://bbs.nga.cn/read.php?tid=123",
+          topicId: "123",
+          lastSeenAt: "2026-05-09T20:00:00.000Z",
+          lastBoardSeenAt: "2026-05-09T20:00:00.000Z",
+          lastBoardRank: 8,
+          contentHash: "same"
+        })
+      ],
+      20
+    );
+
+    expect(result.checkedKeys).toContain("123");
+    expect(result.updatedKeys).toHaveLength(0);
+    expect(result.samples[0].lastCheckedAt).toBe("2026-05-09T08:00:00.000Z");
+    expect(result.samples[0].lastBoardSeenAt).toBe("2026-05-09T20:00:00.000Z");
+    expect(result.samples[0].lastBoardRank).toBe(8);
+  });
+
+  it("archives inactive cache entries only after a full active-window scan", () => {
+    const stale = sanitizeNgaSample({
+      title: "绝欧固定队招募",
+      body: "缺H2",
+      url: "https://bbs.nga.cn/read.php?tid=123",
+      topicId: "123",
+      updatedAt: "2026-04-20 12:00",
+      lastBoardSeenAt: "2026-04-20T12:00:00.000Z"
+    });
+
+    const partial = applyNgaCacheLifecycle([stale], {
+      activeWindowSize: 500,
+      scannedCount: 300,
+      scannedAt: "2026-05-10T00:00:00.000Z",
+      now: new Date("2026-05-10T00:00:00.000Z")
+    });
+    expect(partial.archivedCount).toBe(0);
+    expect(isNgaSampleArchived(partial.samples[0])).toBe(false);
+
+    const full = applyNgaCacheLifecycle([stale], {
+      activeWindowSize: 500,
+      scannedCount: 500,
+      scannedAt: "2026-05-10T00:00:00.000Z",
+      now: new Date("2026-05-10T00:00:00.000Z")
+    });
+    expect(full.archivedCount).toBe(1);
+    expect(full.samples[0].archivedAt).toBe("2026-05-10T00:00:00.000Z");
+    expect(full.samples[0].lastFullWindowScanAt).toBe("2026-05-10T00:00:00.000Z");
+  });
+
+  it("does not archive topics seen during the current full active-window scan", () => {
+    const seen = sanitizeNgaSample({
+      title: "绝欧固定队招募",
+      body: "缺H2",
+      url: "https://bbs.nga.cn/read.php?tid=123",
+      topicId: "123",
+      updatedAt: "2026-04-20 12:00",
+      lastBoardSeenAt: "2026-05-10T00:00:00.000Z",
+      lastBoardRank: 88
+    });
+
+    const result = applyNgaCacheLifecycle([seen], {
+      activeWindowSize: 500,
+      scannedCount: 500,
+      scannedAt: "2026-05-10T00:00:00.000Z",
+      now: new Date("2026-05-10T00:00:00.000Z")
+    });
+
+    expect(result.archivedCount).toBe(0);
+    expect(result.samples[0].archivedAt).toBe("");
+  });
+
+  it("can disable automatic archival with a zero archive window", () => {
+    const stale = sanitizeNgaSample({
+      title: "绝欧固定队招募",
+      body: "缺H2",
+      url: "https://bbs.nga.cn/read.php?tid=123",
+      topicId: "123",
+      updatedAt: "2026-03-01 12:00",
+      lastBoardSeenAt: "2026-03-01T12:00:00.000Z"
+    });
+
+    const result = applyNgaCacheLifecycle([stale], {
+      activeWindowSize: 500,
+      scannedCount: 500,
+      scannedAt: "2026-05-10T00:00:00.000Z",
+      now: new Date("2026-05-10T00:00:00.000Z"),
+      archiveAfterDays: 0
+    });
+
+    expect(result.archivedCount).toBe(0);
+    expect(result.deletedCount).toBe(0);
+    expect(result.samples).toHaveLength(1);
+  });
+
+  it("cleans archived cache entries after the lifecycle retention window", () => {
+    const archived = sanitizeNgaSample({
+      title: "绝欧固定队招募",
+      body: "缺H2",
+      url: "https://bbs.nga.cn/read.php?tid=123",
+      topicId: "123",
+      updatedAt: "2026-03-01 12:00",
+      lastBoardSeenAt: "2026-03-01T12:00:00.000Z",
+      archivedAt: "2026-04-01T00:00:00.000Z"
+    });
+
+    const result = applyNgaCacheLifecycle([archived], {
+      activeWindowSize: 500,
+      scannedCount: 500,
+      scannedAt: "2026-05-10T00:00:00.000Z",
+      now: new Date("2026-05-10T00:00:00.000Z")
+    });
+
+    expect(result.deletedCount).toBe(1);
+    expect(result.samples).toHaveLength(0);
   });
 
   it("separates added, updated, checked, and soft-closed merge outcomes", () => {

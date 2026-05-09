@@ -154,9 +154,12 @@ test("renders the first screen and NGA panel without runtime errors", async ({ p
   await expect(page.getByRole("heading", { name: "副本招募筛选器" })).toBeVisible();
   await expect(page.getByText("数据来源")).toBeVisible();
   await expect(page.locator(".source-toggle-grid input")).toHaveCount(0);
-  await expect(page.locator(".nga-board-grid input")).toHaveCount(0);
   await expect(page.locator(".source-toggle-grid").getByRole("button", { name: "石之家" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".source-toggle-grid").getByRole("button", { name: "NGA" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /NGA 国服/ })).toBeVisible();
+  await expect(page.getByText(/已保存 \d+ · 命中 \d+ · 待更新 \d+/)).toBeVisible();
+  await page.getByRole("button", { name: /NGA 国服/ }).click();
+  await expect(page.locator(".nga-board-grid input")).toHaveCount(0);
   await expect(page.locator(".nga-board-grid").getByRole("button", { name: "国服" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".nga-board-grid").getByRole("button", { name: "日服" })).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".nga-board-grid").getByRole("button", { name: "欧区" })).toHaveAttribute("aria-pressed", "false");
@@ -196,7 +199,7 @@ test("source panel collapses to a compact summary", async ({ page }) => {
   await page.goto("/");
 
   const sourcePanel = page.locator(".source-panel");
-  await expect(sourcePanel.getByText("NGA 地区")).toBeVisible();
+  await expect(sourcePanel.getByRole("button", { name: /NGA 国服/ })).toBeVisible();
   await sourcePanel.getByRole("button", { name: "收起" }).click();
 
   await expect(sourcePanel.getByText("结果来源")).toHaveCount(0);
@@ -209,6 +212,7 @@ test("source panel collapses to a compact summary", async ({ page }) => {
   await expect(sourcePanel.getByText("待刷新")).toBeVisible();
 
   await sourcePanel.getByRole("button", { name: "展开" }).click();
+  await sourcePanel.getByRole("button", { name: /NGA 国服/ }).click();
   await expect(sourcePanel.getByText("NGA 地区")).toBeVisible();
 });
 
@@ -230,6 +234,7 @@ test("tag filter preview shows four rows and expands", async ({ page }) => {
 test("selects NGA regions and advanced board presets", async ({ page }) => {
   await page.goto("/");
 
+  await page.getByRole("button", { name: /NGA 国服/ }).click();
   await page.locator(".nga-board-grid").getByRole("button", { name: "欧区" }).click();
   await page.locator(".nga-board-grid").getByRole("button", { name: "美区" }).click();
   await expect(page.locator(".nga-board-grid").getByRole("button", { name: "国服" })).toHaveAttribute("aria-pressed", "false");
@@ -258,6 +263,7 @@ test("selects NGA regions and advanced board presets", async ({ page }) => {
 
 test("requires explicit confirmation before enabling keep-login", async ({ page }) => {
   await page.goto("/");
+  await page.getByRole("button", { name: /NGA 国服/ }).click();
   await page.getByRole("button", { name: /高级设置/ }).click();
   const keepLogin = page.getByLabel("保持本机网页会话");
 

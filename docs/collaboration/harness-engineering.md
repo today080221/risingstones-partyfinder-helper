@@ -18,6 +18,13 @@
 - 每轮较完整的实现工作至少有一份 `docs/worklog/*.md` 记录。
 - 面向用户安装和运行的信息保留在根目录 `README.md`。
 
+## Merge And Release Precheck
+
+- 准备 merge 或 release 前，先确认 `git fetch origin` 后当前分支没有落后远端，再记录工作树范围。
+- 常规 final QA 至少覆盖：`npm test`、`npm run build`、`cargo check --manifest-path src-tauri/Cargo.toml`、`cargo test --manifest-path src-tauri/Cargo.toml`、`npm run test:e2e`。
+- NGA parser harness 需要同时记录 curated 断言结果和本机样本池统计；如果 curated 断言全过，但命令仅因本机增量样本池不等于历史固定数量而返回非零，应在 worklog 中明确标为数据基线差异。
+- 若用户要求提交前确认，先给出 QA pass/fail、已改文件范围和建议提交信息，再等待用户确认后 commit/push。
+
 ## Remote And Release Maintenance
 
 - GitHub 主仓库：`https://github.com/today080221/risingstones-partyfinder-helper`。
