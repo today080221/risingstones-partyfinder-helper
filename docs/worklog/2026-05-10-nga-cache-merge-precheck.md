@@ -53,6 +53,8 @@
 - 最新 review 发现：多地区读取时若前面地区耗尽本轮活跃窗口预算，生命周期归档仍可能按全局窗口处理未扫描地区。
 - 修复：生命周期归档新增地区作用域；多地区读取只对本轮实际扫描过的招募板做归档/清理和完整窗口标记。Tauri 侧同时将标题单独变化分类为 metadata update，返回给前端更新卡片但仍不强制打开正文。
 - 回归：`npm test` 129/129 passed，`npm run build` passed，`cargo test --manifest-path src-tauri/Cargo.toml` 10/10 passed。
+- 最新 review 发现：启用 NGA 启动自动读取时，若窗口状态先于本地 cache 读取完成，自动读取会用空样本列表作为合并基线，存在覆盖本地已保存招募的风险。
+- 修复：启动自动读取路径和普通启动复核一样等待 `ngaSamplesLoaded` 后再执行，确保保存合并基线已经来自本地 cache。
 
 ## Merge And Release Readiness
 

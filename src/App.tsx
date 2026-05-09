@@ -283,12 +283,17 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!ngaSession?.available || !ngaSession.autoCollectOnStart || ngaAutoCollectStartedRef.current) {
+    if (
+      !ngaSamplesLoaded ||
+      !ngaSession?.available ||
+      !ngaSession.autoCollectOnStart ||
+      ngaAutoCollectStartedRef.current
+    ) {
       return;
     }
     ngaAutoCollectStartedRef.current = true;
     void openNgaAndCollectAfterLogin();
-  }, [ngaSession?.available, ngaSession?.autoCollectOnStart]);
+  }, [ngaSamplesLoaded, ngaSession?.available, ngaSession?.autoCollectOnStart]);
 
   useEffect(() => {
     const controller = new AbortController();
