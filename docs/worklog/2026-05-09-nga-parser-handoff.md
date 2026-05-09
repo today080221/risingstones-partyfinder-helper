@@ -79,7 +79,7 @@
 
 ## Next Thread Starting Point
 
-- Start by reading this file, `docs/features/nga-login-aggregation.md`, and `docs/worklog/2026-05-08-nga-login-aggregation.md`.
+- Start by reading this file, `docs/features/nga-public-aggregation.md`, and `docs/worklog/2026-05-08-nga-login-aggregation.md`.
 - Then inspect `src/lib/nga.ts`, `src/lib/nga.test.ts`, `src/lib/time.ts`, `scripts/validate-nga-parser.ts`, and the UI surfaces in `src/App.tsx`.
 - Keep adding user-confirmed parser edge cases to both `src/lib/nga.test.ts` and `scripts/validate-nga-parser.ts`.
 - Prefer high-confidence extraction over forcing every slang term into a core field. Unknown or risky terms should stay as tags, warnings, or original-reference text until confirmed.

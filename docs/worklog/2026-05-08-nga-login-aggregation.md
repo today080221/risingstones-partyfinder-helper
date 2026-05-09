@@ -1,17 +1,19 @@
-# NGA 登录态聚合工作记录
+# NGA 本地 WebView 聚合工作记录
+
+> 现行产品口径已调整为“默认读取公开招募页 + 可选本机网页会话 + 可选继续浏览页辅助处理”。本文件保留 2026-05-08 当时的早期实现脉络，后续功能文档以 `docs/features/nga-public-aggregation.md` 为准。
 
 ## Start
 
-- 开始：用户要求基于当前仓库实现 NGA 登录态本地聚合能力，并明确合规边界。
+- 开始：用户要求基于当前仓库实现 NGA 本地 WebView 聚合能力，并明确合规边界。
 - 分支：`codex/nga-login-aggregation`。
 - 仓库状态：切分支前 `main...origin/main` 干净；切分支后 `git status --short --branch` 显示在新分支。
-- 目标：新增 Tauri 本机 WebView 登录入口、保持登录状态选项、可见可取消有限频采集、样本分析报告，以及统一来源卡片基础改造。
+- 目标：新增 Tauri 本机 WebView 入口、可选本机网页会话、可见可取消有限频采集、样本分析报告，以及统一来源卡片基础改造。
 
 ## Requirement Alignment
 
 - 不索要账号、密码、Cookie、token 或任何认证信息。
 - 登录只发生在用户本机 WebView 中。
-- 保持登录只依赖 WebView 普通本地浏览器数据目录。
+- 保持本机网页会话只依赖 WebView 普通本地浏览器数据目录。
 - 不读取、打印、导出或上传站点认证数据。
 - 不绕过登录、验证码、风控、访问限制或反自动化机制。
 - 最初阶段先采集样本并生成分析报告，不直接写最终 Parser 规则；本轮后续已在用户确认黑话后落地 Parser v1。
@@ -19,16 +21,16 @@
 
 ## Implementation Log
 
-- 创建功能文档 `docs/features/nga-login-aggregation.md`，记录合规边界、样本白名单字段、Parser 训练式工作流和验收标准。
-- 在 `src/types.ts` 增加 `RecruitSource`、NGA 登录状态、采集设置、采集进度、样本、分析报告和 NGA 解析字段类型；官方招募行增加来源与解析展示的可选字段。
-- 新增 `src/lib/nga.ts`，实现保持登录偏好解析、采集设置归一化、NGA 样本白名单清洗、取消/数量限制判断和样本分析报告生成。
-- 新增 `src/lib/nga.test.ts`，覆盖保持登录默认关闭、风险确认分支、采集设置归一化、URL 限制、取消/数量限制、字段白名单和分析报告生成。
+- 创建功能文档，现已迁移为 `docs/features/nga-public-aggregation.md`，记录合规边界、样本白名单字段、Parser 训练式工作流和验收标准。
+- 在 `src/types.ts` 增加 `RecruitSource`、NGA 网页状态、采集设置、采集进度、样本、分析报告和 NGA 解析字段类型；官方招募行增加来源与解析展示的可选字段。
+- 新增 `src/lib/nga.ts`，实现本机网页会话偏好解析、采集设置归一化、NGA 样本白名单清洗、取消/数量限制判断和样本分析报告生成。
+- 新增 `src/lib/nga.test.ts`，覆盖本机网页会话默认关闭、风险确认分支、采集设置归一化、URL 限制、取消/数量限制、字段白名单和分析报告生成。
 - 在 `src/api.ts` 增加 Tauri NGA invoke 封装；非 Tauri 运行时返回明确不可用错误。
-- 在 `src/storage.ts` 保存来源筛选、NGA 采集设置和保持登录风险确认状态；默认保持登录关闭。
-- 在 `src/App.tsx` 增加 NGA 数据源面板、保持登录风险提示、登录窗口打开、清除登录状态、可见页面采集、停止采集、样本分析报告、官方/NGA 统一卡片和“查看详情”按钮。
-- 根据用户要求追加“登录后采集”可见待命流程：打开 NGA WebView 后最多等待 15 分钟，按用户设置的请求间隔检查当前可见页面，识别到招募样本即停止并生成报告；停止按钮可取消待命。
+- 在 `src/storage.ts` 保存来源筛选、NGA 采集设置和本机网页会话风险确认状态；默认保持本机网页会话关闭。
+- 在 `src/App.tsx` 增加 NGA 数据源面板、本机网页会话风险提示、网页窗口打开、清除本机网页状态、可见页面采集、停止采集、样本分析报告、官方/NGA 统一卡片和“查看详情”按钮。
+- 根据用户要求追加“页面就绪后读取”可见待命流程：打开 NGA WebView 后最多等待 15 分钟，按用户设置的请求间隔检查当前可见页面，识别到招募样本即停止并生成报告；停止按钮可取消待命。
 - 修正 Tauri dev 端口串项目问题：本项目开发端口改为独立 `5188`，`dev:web` 固定 `--port 5188 --strictPort`，`vite.config.ts` 和 Tauri `devUrl` 同步为 `http://127.0.0.1:5188`，避免影响或误连用户正在运行的其他项目。
-- 修正 NGA 登录待命体验：新增 `risingstones_nga_visible_page_status`，自动待命会先判断当前窗口是否回到 NGA；第三方登录、OAuth 授权或非 NGA 页面只显示等待，不再报“当前页面不是受支持的 NGA 地址”。
+- 修正 NGA 页面就绪待命体验：新增 `risingstones_nga_visible_page_status`，自动待命会先判断当前窗口是否回到 NGA；非 NGA 招募页面只显示等待，不再报“当前页面不是受支持的 NGA 地址”。
 - 修正 NGA 第三方登录弹窗：NGA WebView 通过 Tauri `on_new_window` 创建受控子窗口，并继承 opener 的 WebView 环境，允许登录授权流程打开新窗口。
 - 修正 React StrictMode 下 Tauri invoke abort 的误报：前端把主动取消统一标记为 `AbortError`，避免显示“配置加载失败：请求已取消”。
 - 根据真实 200 条样本反馈修正采集策略：列表页标题样本正文缺失率过高，因此新增“采集详情正文”选项，按请求间隔在可见 NGA WebView 中逐个打开 `read.php?tid=...` 帖子详情补齐正文。
@@ -48,7 +50,7 @@
 - 默认在平衡档隐藏疑似已招满、已关闭、广告或公告样本，但样本本身仍保留在本地样本池和分析报告中，未识别档可查看全部。
 - 在 `src/styles.css` 增加 NGA 面板、来源徽标、样本报告、进度条、警告标签和解析字段样式；同时把左上角“石”字块换成更贴近 FF14/工具用途的晶石风格应用标识。
 - 在 `src/lib/filters.ts` 扩展全局排除关键词匹配范围，使 NGA 原文、来源标题、解析字段和警告也能被本地筛选复用。
-- 在 `src-tauri/src/main.rs` 增加 NGA WebView 命令：登录状态、打开登录窗口、清除本机登录状态、采集当前可见页面样本、取消采集。
+- 在 `src-tauri/src/main.rs` 增加 NGA WebView 命令：网页状态、打开网页窗口、清除本机网页状态、采集当前可见页面样本、取消采集。
 - Tauri 采集逻辑只在用户打开的 NGA WebView 当前页面执行 DOM 文本读取，不调用 Cookie/token/localStorage/sessionStorage 读取接口，不实现自动登录或访问限制绕过。
 - 新增 `@playwright/test`、`playwright.config.ts` 和 `tests/e2e/app.pw.ts`，让 UI 冒烟验证成为可重复命令。
 - Playwright 默认使用自带 Chromium/headless shell；本机已用用户提供的 `chrome-headless-shell-win64.zip` 补齐 `chromium_headless_shell-1217` 缓存，并验证版本为 `Google Chrome for Testing 147.0.7727.15`。
@@ -59,7 +61,7 @@
 
 - `cargo check --manifest-path src-tauri/Cargo.toml`：通过，验证 Tauri Rust 命令层可编译。
 - `npm test`：3 个测试文件、55 个测试通过，覆盖 Parser v1 的副本别名、求职流、`需求职业` 分流、已有阵容不算空缺、`8/9`、工具风险标签、`ACT/logs` 低风险、时间轴极性、反提示词、队伍社交属性、`M` 系零式、`tndd`、`edT` 边界、部队噪声、清理帖关闭、排除职业/机制位、NGA 职业/位置筛选和联系方式证据脱敏。
-- `npm run test:e2e`：2 个 Playwright 测试通过，覆盖首屏、NGA 面板默认禁用状态、登录后采集入口禁用状态、保持登录风险提示取消/确认流程。
+- `npm run test:e2e`：2 个 Playwright 测试通过，覆盖首屏、NGA 面板默认禁用状态、页面就绪后读取入口禁用状态、本机网页会话风险提示取消/确认流程。
 - `npm run build`：TypeScript 与 Vite production build 通过。
 - 源码级安全扫描：
   - 未发现 `document.cookie` 或 `cookies_for_url` 调用。
@@ -72,7 +74,7 @@
 ## End
 
 - 本轮结束状态：NGA 本地聚合基础能力和 Parser v1 已落地到 `codex/nga-login-aggregation` 分支。
-- 已满足：保持登录默认关闭、首次开启风险提示、取消不开启、确认后开启、清除本机 NGA 登录状态入口、登录后自动采集待命、采集字段白名单、可取消采集、请求间隔、最大采集数量、异常状态恢复、样本分析报告、官方卡片兼容、Parser v1 结构化字段/置信度/证据/warning/tag 输出。
+- 已满足：保持本机网页会话默认关闭、首次开启风险提示、取消不开启、确认后开启、清除本机 NGA 网页状态入口、页面就绪后读取待命、采集字段白名单、可取消采集、请求间隔、最大采集数量、异常状态恢复、样本分析报告、官方卡片兼容、Parser v1 结构化字段/置信度/证据/warning/tag 输出。
 - 已补充：Playwright 可用且纳入脚本，后续 UI 改动可直接运行 `npm run test:e2e`。
 - 当前真实正文样本阶段结论：396 条详情正文样本可作为第一批 parser fixture；Parser v1 已能覆盖主要绝本、职位、求职、关闭、联系方式、要求和风险标签。后续仍建议补充更多楼层/多楼补充样本，因为当前详情采集主要读取主题首楼内容，可能漏掉楼主后续补充的时间变化或位置已招到信息。
 - 待后续确认：单独 `第九人` 在更多样本里的语义，以及多楼更新中位置已招到的解析策略。

@@ -7,7 +7,7 @@
 - 前端：React + Vite + TypeScript，负责条件选择、本地筛选和结果展示。
 - 本地代理：Express，负责访问石之家公开接口并规整返回数据。
 - 桌面壳：Tauri 原型，负责在桌面应用内通过 Rust 命令直接访问公开接口。
-- NGA 本地聚合：仅在 Tauri 桌面版内通过用户可见 WebView 登录和采集当前页面公开招募内容。
+- NGA 本地聚合：仅在 Tauri 桌面版内通过用户可见 WebView 打开公开招募页，并读取当前页面已经公开渲染出的招募内容。
 - 官方页脚本：Tampermonkey，只在官方域名下提供手动响应辅助。
 
 ## 数据流
@@ -21,7 +21,7 @@ flowchart LR
   Tauri --> Web
   Web --> Invoke["Rust invoke 命令"]
   Invoke --> Official
-  DesktopUser --> NgaView["NGA 登录 WebView"]
+  DesktopUser --> NgaView["NGA 本机网页窗口"]
   NgaView --> NgaSite["NGA 用户可见页面"]
   Invoke --> NgaView
   Invoke --> LocalSamples["本机样本与分析报告"]
@@ -45,7 +45,7 @@ flowchart LR
 - 在桌面运行时把 API 调用切换为 `@tauri-apps/api/core.invoke`。
 - Rust 命令层直接访问石之家公开接口，不启动本地 Node/Express 服务。
 - Rust 命令层执行桌面便携包用户确认式一键更新。
-- Rust 命令层提供 NGA 登录 WebView、保持登录状态 WebView profile、清除本机 NGA profile、受支持招募页状态检查、可见页面样本采集、逐帖详情正文采集、已存样本正文补齐、本地样本 JSON 保存、采集进度查询和取消采集。
+- Rust 命令层提供 NGA 本机网页窗口、可选本机网页会话 profile、清除本机 NGA profile、受支持招募页状态检查、可见页面样本采集、逐帖详情正文采集、已存样本正文补齐、本地样本 JSON 保存、采集进度查询和取消采集。
 - NGA 采集只读取当前 WebView 已渲染页面中的帖子标题、正文、链接、作者、发布时间、版面 ID 和主题 ID，不读取 Cookie、token、localStorage、sessionStorage 或其他站点认证数据。
 - 为后续正式 updater、安装包签名和更低误报分发形态打基础。
 
@@ -56,7 +56,7 @@ flowchart LR
 - 保存本地 UI 状态。
 - 展示分页拉取状态、警告和结果卡片。
 - 统一展示官方与 NGA 来源卡片，并打开对应详情页。
-- 展示 NGA 登录状态、保持登录状态风险提示、清除登录状态、招募板块快捷入口、采集范围、请求间隔、最大数量、详情正文采集选项、进度、停止按钮、最近采集时间和本地保存位置说明。
+- 展示 NGA 窗口状态、保持本机网页会话风险提示、清除本机网页状态、招募板块快捷入口、采集范围、请求间隔、最大数量、详情正文采集选项、继续浏览页辅助处理开关、进度、停止按钮、最近采集时间和本地保存位置说明。
 - 基于 NGA 样本生成分析报告和待用户确认问题清单；已确认术语进入 Parser v1，输出结构化字段、置信度、证据片段、warning 和 tag。
 
 ## 明确不做

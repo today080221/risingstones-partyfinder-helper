@@ -47,6 +47,7 @@ const NGA_RECRUIT_BOARD_URL_SET = new Set<string>(Object.values(NGA_RECRUIT_BOAR
 
 export const DEFAULT_NGA_COLLECTION_SETTINGS: NgaCollectionSettings = {
   keepLogin: false,
+  autoHandleInterstitial: false,
   startUrl: NGA_RECRUIT_BOARD_URLS.cn,
   selectedBoardUrls: [...DEFAULT_NGA_SELECTED_BOARD_URLS],
   allowMultipleBoards: false,
@@ -501,6 +502,20 @@ export async function resolveKeepLoginPreference(
   return Boolean(await confirmEnable());
 }
 
+export async function resolveAutoHandleInterstitialPreference(
+  currentValue: boolean,
+  nextValue: boolean,
+  confirmEnable: () => boolean | Promise<boolean>
+): Promise<boolean> {
+  if (!nextValue) {
+    return false;
+  }
+  if (currentValue) {
+    return true;
+  }
+  return Boolean(await confirmEnable());
+}
+
 export function normalizeNgaCollectionSettings(
   input: Partial<NgaCollectionSettings>
 ): NgaCollectionSettings {
@@ -510,6 +525,7 @@ export function normalizeNgaCollectionSettings(
   const windowMode = input.windowMode === "normal" ? "normal" : DEFAULT_NGA_COLLECTION_SETTINGS.windowMode;
   return {
     keepLogin: Boolean(input.keepLogin),
+    autoHandleInterstitial: Boolean(input.autoHandleInterstitial),
     startUrl,
     selectedBoardUrls,
     allowMultipleBoards,

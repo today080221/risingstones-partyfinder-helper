@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "concurrently -k -n server,web -c green,cyan \"npm:dev:server\" \"npm:dev:web\"",
     "dev:web": "vite --host 127.0.0.1 --port 5188 --strictPort",
+    "dev:web:e2e": "vite",
     "dev:server": "tsx watch server/index.ts",
     "desktop:dev": "tauri dev",
     "desktop:build": "node scripts/run-tauri-build.mjs",
@@ -23,6 +24,7 @@
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "validate:nga-parser": "tsx scripts/validate-nga-parser.ts",
+    "validate:nga-parser:local": "tsx scripts/validate-nga-parser.ts --local-samples --strict-baseline",
     "test": "vitest run",
     "test:watch": "vitest"
   },

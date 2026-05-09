@@ -41,7 +41,8 @@ import {
   loadNgaSamples,
   navigateNgaSession,
   openNgaSession,
-  saveNgaSamples
+  saveNgaSamples,
+  showNgaSession
 } from "./api";
 import { UPDATE_PROVIDER_LABELS } from "./config";
 import { isTauriRuntime, openExternalUrl } from "./lib/external-links";
@@ -70,6 +71,7 @@ import {
   NGA_RECRUIT_BOARD_URLS,
   normalizeNgaCacheReviewSamples,
   normalizeNgaCollectionSettings,
+  resolveAutoHandleInterstitialPreference,
   resolveKeepLoginPreference,
   sanitizeNgaSample,
   shouldShowNgaSample
@@ -140,6 +142,10 @@ const NGA_KEEP_LOGIN_NOTICE =
   "开启后，本软件会使用内置网页窗口的本地数据目录保存 NGA 的普通网页会话，这样下次打开软件时通常不需要重新操作。\n\n" +
   "本软件只读取页面上已经渲染出的公开招募内容，不读取、导出、上传或展示网页内部状态；网页会话由本机网页窗口按普通浏览器机制保存。\n\n" +
   "如果你使用的是公用电脑，或者不希望本机保存网页会话，请不要开启此选项。你也可以随时在设置中清除 NGA 本机网页状态。";
+const NGA_INTERSTITIAL_NOTICE =
+  "自动处理普通继续浏览页说明\n\n" +
+  "开启后，本软件会在用户可见的 NGA 网页窗口中，对页面上明确显示的继续浏览、继续访问或同等含义按钮执行一次普通点击，以便回到原本的招募页。\n\n" +
+  "本功能不会屏蔽页面资源，不会拦截网络请求，不会绕过登录、验证码、权限、风控或安全验证。你可以随时关闭。";
 const NGA_AUTO_COLLECT_MAX_WAIT_MS = 15 * 60 * 1000;
 const NGA_BOARD_READY_MAX_WAIT_MS = 15 * 1000;
 const NGA_BOARD_INTERSTITIAL_MAX_WAIT_MS = 45 * 1000;
@@ -168,6 +174,9 @@ export function App() {
     normalizeNgaCollectionSettings(initialState.ngaSettings)
   );
   const [ngaKeepLoginAcknowledged, setNgaKeepLoginAcknowledged] = useState(initialState.ngaKeepLoginAcknowledged);
+  const [ngaInterstitialAcknowledged, setNgaInterstitialAcknowledged] = useState(
+    initialState.ngaInterstitialAcknowledged
+  );
   const [ngaSession, setNgaSession] = useState<NgaSessionStatusPayload | null>(null);
   const [ngaSamples, setNgaSamples] = useState<NgaSample[]>([]);
   const [ngaSamplesLoaded, setNgaSamplesLoaded] = useState(false);
@@ -242,6 +251,8 @@ export function App() {
           available: false,
           loginStatus: "unknown",
           keepLogin: false,
+          windowOpened: false,
+          persistentProfileEnabled: false,
           dataLocation: "仅桌面版会保存本机网页窗口状态。",
           message: "浏览器预览仅能使用已保存的 NGA 招募。"
         });
@@ -292,7 +303,7 @@ export function App() {
       return;
     }
     ngaAutoCollectStartedRef.current = true;
-    void openNgaAndCollectAfterLogin();
+    void openNgaAndReadWhenReady();
   }, [ngaSamplesLoaded, ngaSession?.available, ngaSession?.autoCollectOnStart]);
 
   useEffect(() => {
@@ -321,6 +332,7 @@ export function App() {
   useEffect(() => {
     return () => {
       ngaAutoCollectRunRef.current += 1;
+      void cancelNgaCollection().catch(() => undefined);
       if (flashTimerRef.current) {
         window.clearTimeout(flashTimerRef.current);
       }
@@ -369,6 +381,7 @@ export function App() {
       sourceFilters,
       ngaSettings,
       ngaKeepLoginAcknowledged,
+      ngaInterstitialAcknowledged,
       filters
     });
   }, [
@@ -383,6 +396,7 @@ export function App() {
     sourceFilters,
     ngaSettings,
     ngaKeepLoginAcknowledged,
+    ngaInterstitialAcknowledged,
     filters
   ]);
 
@@ -528,7 +542,19 @@ export function App() {
   }
 
   function updateNgaSettings(patch: Partial<NgaCollectionSettings>) {
-    setNgaSettings((current) => normalizeNgaCollectionSettings({ ...current, ...patch }));
+    setNgaSettings((current) => {
+      const normalized = normalizeNgaCollectionSettings({ ...current, ...patch });
+      if (typeof patch.startUrl === "string" && !normalized.allowMultipleBoards) {
+        const presetBoardUrl = NGA_RECRUIT_BOARD_PRESETS.find(([url]) => url === normalized.startUrl)?.[0];
+        if (presetBoardUrl) {
+          return normalizeNgaCollectionSettings({
+            ...normalized,
+            selectedBoardUrls: [presetBoardUrl]
+          });
+        }
+      }
+      return normalized;
+    });
   }
 
   function toggleSourceFilter(source: RecruitSource) {
@@ -687,7 +713,12 @@ export function App() {
       return;
     }
 
-    abortRef.current?.abort();
+    if (abortRef.current) {
+      abortRef.current.abort();
+      if (isCollectingNga || isAutoCollectArmed) {
+        void cancelNgaCollection().catch(() => undefined);
+      }
+    }
     const controller = new AbortController();
     abortRef.current = controller;
     const notices: string[] = [];
@@ -733,6 +764,18 @@ export function App() {
 
   function cancelLoad() {
     abortRef.current?.abort();
+    if (isCollectingNga || isAutoCollectArmed) {
+      void cancelNgaCollection().catch(() => undefined);
+      ngaAutoCollectRunRef.current += 1;
+      setNgaProgress((current) => ({
+        ...current,
+        status: "cancelled",
+        message: "已请求停止读取。",
+        finishedAt: new Date().toISOString()
+      }));
+      setIsCollectingNga(false);
+      setIsAutoCollectArmed(false);
+    }
     abortRef.current = null;
     setIsLoading(false);
   }
@@ -755,7 +798,25 @@ export function App() {
     updateNgaSettings({ keepLogin: enabled });
   }
 
-  async function openNgaLoginWindow() {
+  async function toggleNgaAutoHandleInterstitial(nextValue: boolean) {
+    const enabled = await resolveAutoHandleInterstitialPreference(
+      ngaSettings.autoHandleInterstitial,
+      nextValue,
+      () => {
+        if (ngaInterstitialAcknowledged) {
+          return true;
+        }
+        const confirmed = window.confirm(NGA_INTERSTITIAL_NOTICE);
+        if (confirmed) {
+          setNgaInterstitialAcknowledged(true);
+        }
+        return confirmed;
+      }
+    );
+    updateNgaSettings({ autoHandleInterstitial: enabled });
+  }
+
+  async function openNgaWindow() {
     setIsOpeningNga(true);
     setNgaError("");
     setNgaMessage("");
@@ -770,7 +831,7 @@ export function App() {
     }
   }
 
-  async function clearNgaLoginState() {
+  async function clearNgaWebviewState() {
     const confirmed = window.confirm("将清除本应用内 NGA 网页窗口保存的本机状态，不影响系统浏览器。是否继续？");
     if (!confirmed) {
       return;
@@ -784,6 +845,8 @@ export function App() {
         available: current?.available ?? true,
         loginStatus: "unknown",
         keepLogin: false,
+        windowOpened: false,
+        persistentProfileEnabled: false,
         dataLocation: result.dataLocation,
         message: result.message
       }));
@@ -880,7 +943,7 @@ export function App() {
 
     try {
       setIsOpeningNga(true);
-      const pageStatus = await fetchNgaVisiblePageStatus(signal).catch(() => null);
+      const pageStatus = await fetchNgaVisiblePageStatus(ngaSettings.autoHandleInterstitial, signal).catch(() => null);
       if (pageStatus?.opened) {
         await navigateNgaSession(boardUrls[0], signal);
         setNgaMessage("已复用当前 NGA 窗口，开始按地区顺序读取。");
@@ -1045,7 +1108,7 @@ export function App() {
       if (signal?.aborted || ngaAutoCollectRunRef.current !== runId) {
         return false;
       }
-      const pageStatus = await fetchNgaVisiblePageStatus(signal);
+      const pageStatus = await fetchNgaVisiblePageStatus(ngaSettings.autoHandleInterstitial, signal);
       latestStatus = pageStatus;
       if (isSameNgaTargetUrl(pageStatus.currentUrl, expectedUrl)) {
         setNgaProgress((current) => ({
@@ -1096,17 +1159,24 @@ export function App() {
     startAttempt: number,
     signal?: AbortSignal
   ): Promise<boolean> {
+    let restoredWindow = false;
     for (let attempt = startAttempt; attempt <= maxAttempts; attempt += 1) {
       if (signal?.aborted || ngaAutoCollectRunRef.current !== runId) {
         return false;
       }
-      const pageStatus = await fetchNgaVisiblePageStatus(signal);
+      const pageStatus = await fetchNgaVisiblePageStatus(ngaSettings.autoHandleInterstitial, signal);
+      if (pageStatus.state === "interstitial" && !ngaSettings.autoHandleInterstitial && !restoredWindow) {
+        restoredWindow = true;
+        void showNgaSession().catch(() => undefined);
+      }
       setNgaProgress((current) => ({
         ...current,
         currentUrl: pageStatus.currentUrl || expectedUrl,
         message:
           pageStatus.state === "interstitial"
-            ? `${boardLabel} 打开了继续浏览页，请在 NGA 窗口点继续；工具会自动重试。`
+            ? ngaSettings.autoHandleInterstitial
+              ? `${boardLabel} 打开了继续浏览页，正在等待页面回到招募板。`
+              : `${boardLabel} 正在等待你在 NGA 窗口处理继续浏览页；处理后会自动重试。`
             : isSameNgaTargetUrl(pageStatus.currentUrl, expectedUrl)
               ? `${boardLabel} 已就绪，准备读取。`
               : `${boardLabel} 正在返回目标板块，第 ${attempt}/${maxAttempts} 次检查。`
@@ -1167,7 +1237,7 @@ export function App() {
     }
   }
 
-  async function openNgaAndCollectAfterLogin() {
+  async function openNgaAndReadWhenReady() {
     const runId = ngaAutoCollectRunRef.current + 1;
     ngaAutoCollectRunRef.current = runId;
     setIsAutoCollectArmed(true);
@@ -1230,7 +1300,7 @@ export function App() {
 
       let pageStatus: NgaVisiblePageStatusPayload;
       try {
-        pageStatus = await fetchNgaVisiblePageStatus();
+        pageStatus = await fetchNgaVisiblePageStatus(ngaSettings.autoHandleInterstitial);
       } catch (error) {
         setNgaProgress((current) => ({
           ...current,
@@ -1507,9 +1577,10 @@ export function App() {
                   onBoardToggle={toggleNgaBoardUrl}
                   onMultiBoardToggle={toggleNgaMultiBoardMode}
                   onKeepLoginChange={(nextValue) => void toggleNgaKeepLogin(nextValue)}
-                  onOpen={() => void openNgaLoginWindow()}
-                  onClear={() => void clearNgaLoginState()}
-                  onAutoCollect={() => void openNgaAndCollectAfterLogin()}
+                  onAutoHandleInterstitialChange={(nextValue) => void toggleNgaAutoHandleInterstitial(nextValue)}
+                  onOpen={() => void openNgaWindow()}
+                  onClear={() => void clearNgaWebviewState()}
+                  onAutoCollect={() => void openNgaAndReadWhenReady()}
                   onCollect={() => void collectNgaSamplesFromVisiblePage()}
                   onCollectDetails={() => void collectNgaDetailsForStoredSamples()}
                   onStop={() => void stopNgaCollection()}
@@ -2214,6 +2285,7 @@ function NgaPanel({
   onBoardToggle,
   onMultiBoardToggle,
   onKeepLoginChange,
+  onAutoHandleInterstitialChange,
   onOpen,
   onClear,
   onAutoCollect,
@@ -2242,6 +2314,7 @@ function NgaPanel({
   onBoardToggle: (boardUrl: string) => void;
   onMultiBoardToggle: (nextValue: boolean) => void;
   onKeepLoginChange: (nextValue: boolean) => void;
+  onAutoHandleInterstitialChange: (nextValue: boolean) => void;
   onOpen: () => void;
   onClear: () => void;
   onAutoCollect: () => void;
@@ -2363,6 +2436,15 @@ function NgaPanel({
           <label className="check-row">
             <input
               type="checkbox"
+              checked={settings.autoHandleInterstitial}
+              onChange={(event) => onAutoHandleInterstitialChange(event.target.checked)}
+            />
+            自动处理普通继续浏览页
+          </label>
+
+          <label className="check-row">
+            <input
+              type="checkbox"
               checked={settings.autoRefreshOnStart}
               onChange={(event) => onSettingsChange({ autoRefreshOnStart: event.target.checked })}
             />
@@ -2466,7 +2548,7 @@ function NgaPanel({
             </button>
             <button type="button" className="primary-button" onClick={onAutoCollect} disabled={isCollecting || isOpening || !available}>
               {isCollecting ? <Loader2 size={15} className="spin" /> : <Database size={15} />}
-              打开后读取
+              页面就绪后读取
             </button>
           </div>
 

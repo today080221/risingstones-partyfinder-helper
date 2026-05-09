@@ -237,6 +237,7 @@ export interface NgaSampleAnalysisReport {
 
 export interface NgaCollectionSettings {
   keepLogin: boolean;
+  autoHandleInterstitial: boolean;
   startUrl: string;
   selectedBoardUrls: string[];
   allowMultipleBoards: boolean;
@@ -264,7 +265,7 @@ export interface NgaCachedTopic {
   sourceBoardUrl?: string;
 }
 
-export interface NgaCollectRequestSettings extends Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs" | "includeDetails" | "recentActiveDays" | "refreshIntervalHours"> {
+export interface NgaCollectRequestSettings extends Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs" | "includeDetails" | "recentActiveDays" | "refreshIntervalHours" | "autoHandleInterstitial"> {
   cachedSamples?: NgaCachedTopic[];
 }
 
@@ -291,6 +292,8 @@ export interface NgaSessionStatusPayload {
   available: boolean;
   loginStatus: NgaLoginStatus;
   keepLogin: boolean;
+  windowOpened?: boolean;
+  persistentProfileEnabled?: boolean;
   dataLocation: string;
   message: string;
   autoCollectOnStart?: boolean;
@@ -303,6 +306,7 @@ export interface NgaVisiblePageStatusPayload {
   message: string;
   state?: "ready" | "interstitial" | "unsupported" | "closed";
   targetUrl?: string;
+  handledInterstitial?: boolean;
 }
 
 export interface NgaNavigateSessionPayload extends NgaVisiblePageStatusPayload {

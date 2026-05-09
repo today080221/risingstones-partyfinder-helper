@@ -55,7 +55,7 @@
 - `NgaSample` 增加本地复核元数据：`lastCheckedAt`、`lastSeenAt`、`detailFetchedAt`、`contentHash`、`closedAt`、`sourceBoardUrl`；前端传给 Tauri 的 cache 索引只包含主题 ID、URL、更新时间、复核时间、是否已有正文和内容 hash，不传正文大文本。
 - 高级设置新增“启动后自动复核已保存招募”“复核间隔(小时)”和“聚合窗口”；默认自动复核、12 小时间隔、聚合窗口最小化。
 - NGA 聚合顺序调整为先扫描新主题，再静默复核超过间隔、缺正文或状态不确定的旧主题；当前快扫方案下未变化主题只刷新列表命中时间和排名，不刷新正文复核时间，不重复打开正文。
-- `misc/adpage_insert_2.html?...` 继续页面现在会优先自动点击页面里的继续按钮，失败时再提示用户处理。
+- `misc/adpage_insert_2.html?...` 继续页面默认等待用户在可见窗口处理；只有用户主动开启“自动处理普通继续浏览页”后，才会辅助点击明确的继续按钮。
 - 结果列表接入 `react-virtuoso`，使用 window scroll 承载可变高度卡片；卡片按稳定 ID 热更新，新增/更新时短暂高亮，并在插入或隐藏后做 scroll anchor 补偿。
 - 结果区状态条改为 cache 友好口径：NGA 已保存、石之家本轮、当前命中、待刷新、最近复核；聚合完成文案显示快扫、新帖、复核、归档和清理。
 - 数据来源面板新增整体折叠摘要；标签/类型筛选默认 4 行预览，剩余标签渐隐折叠，已选标签优先进入预览。
@@ -68,8 +68,8 @@
 - 快扫阶段只读取列表 metadata：主题 ID、URL、标题、作者、发布时间/更新时间、来源版面和列表排名；cache hit 只刷新 `lastBoardSeenAt`、`lastBoardRank`、`updatedAt`、`lastSeenAt`，不刷新正文复核时间。
 - 列表 metadata 没有正文时不再用空正文 hash 和已缓存正文 hash 比较，避免把稳定 cache hit 误判成变化；只有带正文的样本才用内容 hash 判定正文变化。
 - NGA 招募板快扫恢复到已验证的主页面帖子链接提取规则；当某一页抽到 0 个主题时，只在同一页短暂重试并输出候选链接/备用链接/下一页链接计数，仍为空则停止继续翻页，避免 0 主题状态一路追到深分页。
-- 变化置信度分层：列表快扫阶段只有标题与活跃时间同时变化才触发正文复核；仅 `updatedAt` 变化或仅标题变化都只刷新列表命中信息。正文 hash 只用于已经拿到正文后的合并/高亮判断。
-- 正文读取队列只包含 cache miss 新主题、标题与活跃时间同时变化主题、缺正文主题和超过复核间隔/状态不明确的旧主题；短时间重复聚合且没有变化时通常只完成快扫。
+- 变化置信度分层后在合并前再次调整：列表快扫阶段只要标题变化或 `updatedAt` 活跃时间变化都会进入正文复核，避免正文/联系方式/解析字段滞后；正文 hash 只用于已经拿到正文后的合并/高亮判断。
+- 正文读取队列包含 cache miss 新主题、标题变化主题、活跃时间变化主题、缺正文主题和超过复核间隔/状态不明确的旧主题；短时间重复聚合且没有变化时通常只完成快扫。
 - `NgaSample` 生命周期元数据补充 `lastBoardSeenAt`、`lastBoardRank`、`lastFullWindowScanAt`、`archivedAt`、`archiveReason`；压缩 cache 索引继续不包含正文。
 - 只有完成一次完整活跃窗口快扫后，才用“未出现在活跃窗口”作为归档证据；默认 14 天未活跃且未命中的样本归档，`0` 表示不自动归档，归档或长期不活跃超过 30 天的样本清理。
 - 普通结果列表默认隐藏归档样本；开发诊断显示已归档数量。
@@ -82,4 +82,4 @@
 - `cargo check --manifest-path src-tauri/Cargo.toml`: passed.
 - `cargo test --manifest-path src-tauri/Cargo.toml`: 10/10 passed.
 - `npm run test:e2e`: 9/9 passed.
-- `npm run validate:nga-parser`: curated assertions 213/213 passed; command exit is currently blocked by the local saved NGA data differing from the old 396-row baseline. Current local pool is 507 rows, 507 with body, 264 high-confidence effective rows.
+- `npm run validate:nga-parser`: curated assertions 213/213 passed; default command now treats local saved NGA data differences as warning/report only. Current local pool snapshot was 507 rows, 507 with body, 264 high-confidence effective rows.

@@ -16,7 +16,7 @@
 ## Implementation Summary
 
 - NGA 聚合以“活跃窗口大小”快扫列表 metadata，默认 500 个主题；cache hit 只刷新列表命中时间和排名，不刷新正文复核时间。
-- 正文读取队列只包含新主题、标题与活跃时间同时变化、缺正文、超过复核间隔或状态不明确的主题。
+- 正文读取队列包含新主题、标题变化、活跃时间变化、缺正文、超过复核间隔或状态不明确的主题。
 - 只有完成完整活跃窗口快扫后，才用“不在窗口内”作为归档证据；普通列表默认隐藏归档样本，长期不活跃样本可被清理。
 - 招募板列表读取恢复到已验证的主页面帖子链接提取规则，并增加 0 主题保护和诊断计数。
 - 数据来源面板和 NGA 子面板都支持轻量折叠；标签/类型筛选默认 4 行预览，已选标签优先显示。
@@ -29,7 +29,7 @@
 - `cargo check --manifest-path src-tauri/Cargo.toml`：通过。
 - `cargo test --manifest-path src-tauri/Cargo.toml`：通过，10/10 tests passed。
 - `npm run test:e2e`：通过，9/9 Playwright tests passed。
-- `npm run validate:nga-parser`：curated harness 通过，30 个 fixtures、213/213 structured assertions passed；命令返回非零仅因本机样本池已增量到 507 条，不等于旧 396 条固定基线。
+- `npm run validate:nga-parser`：curated harness 通过，30 个 fixtures、213/213 structured assertions passed；默认命令只用 curated harness 作为失败门槛，本机样本池数量差异仅输出 warning。
 
 ## Parser Harness Snapshot
 
@@ -45,7 +45,7 @@
 - 修复：将 NGA 目标页匹配抽到 `src/lib/nga.ts`，`thread.php` 同时比较 `stid` 和 `page`；缺省 `page` 按 `1` 处理，`read.php` 仍按 `tid` 匹配。
 - 回归：新增两个单测覆盖板块首页/page 匹配和详情页 topic 匹配；`npm test` 127/127 passed，`npm run build` passed。
 - 最新 review 发现：多地区连续读取时，`applyNgaSamples` 使用函数创建时捕获的旧 `ngaSamples`，后续地区保存可能覆盖本轮前面地区的新样本。
-- 修复：`applyNgaSamples` 新增 `baseSamples` 选项；多地区聚合和登录后当前页读取都传入本轮运行中的 `collectedSamples`，确保顺序读取会累积合并。
+- 修复：`applyNgaSamples` 新增 `baseSamples` 选项；多地区聚合和页面就绪后当前页读取都传入本轮运行中的 `collectedSamples`，确保顺序读取会累积合并。
 - 回归：`npm test` 127/127 passed，`npm run build` passed。
 - 最新 review 发现：列表 metadata 只有标题变化时，前端合并会优先保留带正文的旧样本，导致新标题被旧样本压掉。
 - 修复：合并时允许本轮列表 metadata 更新标题、更新时间、作者等轻字段，同时保留旧正文、正文复核时间和内容 hash。后续 review 进一步要求标题变化触发正文复核，因此标题变更不再仅做 metadata 更新。
@@ -63,7 +63,7 @@
 ## Merge And Release Readiness
 
 - 代码与文档预检：通过。
-- 唯一非绿色项：`npm run validate:nga-parser` 的进程退出码仍受旧本机样本数量基线影响；curated parser 断言全过，属于 harness 数据基线差异，不是 parser 断言失败。
+- `npm run validate:nga-parser` 已调整为 curated parser 断言失败才返回非零；本机样本数量基线差异改为 warning/report，严格检查另走 `npm run validate:nga-parser:local`。
 - 建议提交信息：`收口 NGA cache 快扫与 merge 预检`。
 - merge 后如要出 release，建议发布前再跑一次发布链路验证：`npm run release:check`，以及需要桌面包时的 `npm run package:desktop:portable`。
 

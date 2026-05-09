@@ -69,7 +69,9 @@ describe("saved local filter migration", () => {
     expect(loadUiState().ngaSettings).toMatchObject({
       autoRefreshOnStart: true,
       refreshIntervalHours: 12,
-      windowMode: "minimized"
+      windowMode: "minimized",
+      autoHandleInterstitial: false
     });
+    expect(loadUiState().ngaInterstitialAcknowledged).toBe(false);
   });
 });

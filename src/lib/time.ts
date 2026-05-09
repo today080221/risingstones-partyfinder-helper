@@ -683,10 +683,14 @@ function formatTimeRangeDisplay(start: number, end: number, prefix: string): str
   return `${toClockPart(start)}-${toClockPart(end, { nextDay: end > 24 })}`;
 }
 
-function toClockPart(value: number, options: { nextDay?: boolean } = {}): string {
+export function toClockPart(value: number, options: { nextDay?: boolean } = {}): string {
   const normalized = value === 24 ? 24 : ((value % 24) + 24) % 24;
-  const hour = Math.floor(normalized);
-  const minute = Math.round((normalized - hour) * 60);
+  let totalMinutes = Math.round(normalized * 60);
+  if (totalMinutes === 24 * 60 && value !== 24) {
+    totalMinutes = 0;
+  }
+  const hour = totalMinutes === 24 * 60 ? 24 : Math.floor(totalMinutes / 60) % 24;
+  const minute = totalMinutes % 60;
   const text = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
   return options.nextDay ? `次日${text}` : text;
 }

@@ -17,6 +17,7 @@ export interface SavedUiState {
   sourceFilters: RecruitSource[];
   ngaSettings: NgaCollectionSettings;
   ngaKeepLoginAcknowledged: boolean;
+  ngaInterstitialAcknowledged: boolean;
   filters: LocalFilterState;
 }
 
@@ -57,6 +58,7 @@ export const defaultUiState: SavedUiState = {
   sourceFilters: [...ALL_RECRUIT_SOURCES],
   ngaSettings: { ...DEFAULT_NGA_COLLECTION_SETTINGS, selectedBoardUrls: [...DEFAULT_NGA_COLLECTION_SETTINGS.selectedBoardUrls] },
   ngaKeepLoginAcknowledged: false,
+  ngaInterstitialAcknowledged: false,
   filters: defaultFilters
 };
 
@@ -96,6 +98,7 @@ export function loadUiState(): SavedUiState {
       sourceFilters: normalizeSourceFilters(parsed.sourceFilters, parsed.sourceFilter),
       ngaSettings: normalizeNgaCollectionSettings(parsed.ngaSettings ?? {}),
       ngaKeepLoginAcknowledged: Boolean(parsed.ngaKeepLoginAcknowledged),
+      ngaInterstitialAcknowledged: Boolean(parsed.ngaInterstitialAcknowledged),
       filters: {
         ...defaultFilters,
         ...parsedFilters,

@@ -210,7 +210,7 @@ docs/                   中文项目文档链
 
 ## 许可
 
-本项目代码以 MIT License 发布，版权归属写作 `菜菜的橙子 and risingstones-partyfinder-helper contributors`，详见 `LICENSE`。
+本项目以 MIT License 发布；再分发源码或二进制时需保留 `LICENSE` 中的版权与许可声明。
 
 本项目使用的第三方依赖和发布包运行时说明见 `THIRD_PARTY_NOTICES.md`。
 

@@ -19,5 +19,5 @@
 - `npm test`：94/94 通过。
 - `npm run build`：通过。
 - `cargo check --manifest-path src-tauri/Cargo.toml`：通过。
-- `npm run test:e2e`：3/3 通过，覆盖首屏 NGA 面板、保持登录确认和新增分区预设切换。
+- `npm run test:e2e`：3/3 通过，覆盖首屏 NGA 面板、本机网页会话确认和新增分区预设切换。
 - `npm run validate:nga-parser`：本地样本池 396/396 条含正文；curated fixture 29 个、结构化断言 208/208 通过；高置信有效行 225 条。

@@ -8,7 +8,8 @@ import {
   formatRecruitDailyDuration,
   formatRecruitTimeDisplay,
   matchesTimeFilter,
-  parseRecruitTime
+  parseRecruitTime,
+  toClockPart
 } from "./time";
 import type { MetaPayload, RecruitRow } from "../types";
 
@@ -100,6 +101,12 @@ describe("time parsing", () => {
       "10:00-14:00、21:00-次日01:00"
     );
     expect(formatRecruitTimeDisplay("晚12：00-2：00")).toBe("00:00-02:00");
+  });
+
+  it("normalizes rounded clock minutes without producing minute 60", () => {
+    expect(toClockPart(23.999999)).toBe("00:00");
+    expect(toClockPart(24)).toBe("24:00");
+    expect(toClockPart(24.000001, { nextDay: true })).toBe("次日00:00");
   });
 
   it("matches requested hour overlaps and day filters", () => {

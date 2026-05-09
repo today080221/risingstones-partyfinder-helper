@@ -26,7 +26,7 @@ export default defineConfig({
     ...(browserChannel ? { channel: browserChannel } : {})
   },
   webServer: {
-    command: `npm run dev:web -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
+    command: `npm run dev:web:e2e -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
     url: e2eBaseUrl,
     reuseExistingServer: false,
     timeout: 120_000

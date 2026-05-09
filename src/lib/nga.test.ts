@@ -11,6 +11,7 @@ import {
   mergeNgaSamplesWithDiff,
   normalizeNgaCacheReviewSamples,
   normalizeNgaCollectionSettings,
+  resolveAutoHandleInterstitialPreference,
   resolveKeepLoginPreference,
   isSameNgaTargetUrl,
   mergeNgaSamples,
@@ -24,6 +25,11 @@ import {
 describe("nga safety preferences", () => {
   it("keeps login disabled by default", () => {
     expect(DEFAULT_NGA_COLLECTION_SETTINGS.keepLogin).toBe(false);
+  });
+
+  it("keeps ordinary continue-page assistance disabled by default", () => {
+    expect(DEFAULT_NGA_COLLECTION_SETTINGS.autoHandleInterstitial).toBe(false);
+    expect(normalizeNgaCollectionSettings({}).autoHandleInterstitial).toBe(false);
   });
 
   it("requires explicit confirmation before enabling keep-login", async () => {
@@ -40,6 +46,18 @@ describe("nga safety preferences", () => {
   it("turns keep-login off without confirmation", async () => {
     const confirm = vi.fn(() => true);
     await expect(resolveKeepLoginPreference(true, false, confirm)).resolves.toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("requires explicit confirmation before enabling ordinary continue-page assistance", async () => {
+    const confirm = vi.fn(() => false);
+    await expect(resolveAutoHandleInterstitialPreference(false, true, confirm)).resolves.toBe(false);
+    expect(confirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("turns ordinary continue-page assistance off without confirmation", async () => {
+    const confirm = vi.fn(() => true);
+    await expect(resolveAutoHandleInterstitialPreference(true, false, confirm)).resolves.toBe(false);
     expect(confirm).not.toHaveBeenCalled();
   });
 });

@@ -6,6 +6,8 @@ import type { NgaSample, NgaSampleSignal, PositionKey } from "../src/types";
 const DEFAULT_SAMPLE_PATH =
   "C:\\Users\\12553\\AppData\\Roaming\\com.today080221.risingstones.partyfinderhelper\\nga-samples.json";
 const EXPECTED_SAMPLE_COUNT = 396;
+const args = new Set(process.argv.slice(2));
+const strictLocalSamples = args.has("--local-samples") && args.has("--strict-baseline");
 
 type FieldKey = keyof NonNullable<NgaSampleSignal["parsedFields"]>;
 
@@ -528,25 +530,35 @@ function main() {
     `Sample pool: ${samplePool.total} total, ${samplePool.withBody} with body, ` +
       `${samplePool.highConfidenceEffective} high-confidence effective rows.`
   );
+  if (!samplePool.expectedCountOk || !samplePool.allBodiesOk || samplePool.readError) {
+    console.warn(
+      "Local sample pool differs from the historical baseline; default validation only gates curated parser assertions. " +
+        "Run npm run validate:nga-parser:local for strict local sample checks."
+    );
+  }
 
-  const shouldFail = !samplePool.expectedCountOk || !samplePool.allBodiesOk || curated.failed > 0;
+  const shouldFail = curated.failed > 0 || (strictLocalSamples && (!samplePool.expectedCountOk || !samplePool.allBodiesOk || Boolean(samplePool.readError)));
   if (shouldFail) {
     process.exitCode = 1;
   }
 }
 
-function readSampleStore(samplePath: string): { count?: number; samples: Partial<NgaSample>[] } {
+function readSampleStore(samplePath: string): { count?: number; samples: Partial<NgaSample>[]; readError?: string } {
   const resolved = path.resolve(samplePath);
-  const raw = fs.readFileSync(resolved, "utf8");
-  const parsed = JSON.parse(raw) as { count?: number; samples?: Partial<NgaSample>[] } | Partial<NgaSample>[];
-  if (Array.isArray(parsed)) {
-    return { count: parsed.length, samples: parsed };
+  try {
+    const raw = fs.readFileSync(resolved, "utf8");
+    const parsed = JSON.parse(raw) as { count?: number; samples?: Partial<NgaSample>[] } | Partial<NgaSample>[];
+    if (Array.isArray(parsed)) {
+      return { count: parsed.length, samples: parsed };
+    }
+    return { count: parsed.count, samples: Array.isArray(parsed.samples) ? parsed.samples : [] };
+  } catch (error) {
+    return { count: 0, samples: [], readError: error instanceof Error ? error.message : String(error) };
   }
-  return { count: parsed.count, samples: Array.isArray(parsed.samples) ? parsed.samples : [] };
 }
 
 function summarizeSamplePool(
-  store: { count?: number; samples: Partial<NgaSample>[] },
+  store: { count?: number; samples: Partial<NgaSample>[]; readError?: string },
   samples: NgaSample[],
   signals: NgaSampleSignal[],
   samplePath: string
@@ -563,6 +575,7 @@ function summarizeSamplePool(
 
   return {
     path: samplePath,
+    readError: store.readError,
     countProp: store.count,
     total: samples.length,
     withBody,

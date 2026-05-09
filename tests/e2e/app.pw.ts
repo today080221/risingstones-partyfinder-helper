@@ -183,11 +183,13 @@ test("renders the first screen and NGA panel without runtime errors", async ({ p
   await expect(page.getByRole("button", { name: /开发诊断/ })).toBeVisible();
   await page.getByRole("button", { name: /高级设置/ }).click();
   await expect(page.getByLabel("保持本机网页会话")).not.toBeChecked();
+  await expect(page.getByLabel("自动处理普通继续浏览页")).not.toBeChecked();
+  await expect(page.getByText(/登录授权|账号授权/)).toHaveCount(0);
   await expect(page.locator(".field").filter({ hasText: "NGA 招募板地址" }).locator("input")).toHaveValue(
     "https://bbs.nga.cn/thread.php?stid=44366746"
   );
   await expect(page.getByRole("button", { name: /打开 NGA/ })).toBeDisabled();
-  await expect(page.getByRole("button", { name: /打开后读取/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /页面就绪后读取/ })).toBeDisabled();
   await expect(page.getByRole("button", { name: /读取当前页/ })).toBeDisabled();
   await page.getByRole("button", { name: /开发诊断/ }).click();
   await expect(page.getByText(/保存位置/)).toBeVisible();
@@ -259,6 +261,12 @@ test("selects NGA regions and advanced board presets", async ({ page }) => {
 
   await page.locator(".preset-row").getByRole("button", { name: "美区" }).click();
   await expect(ngaStartUrl).toHaveValue("https://bbs.nga.cn/thread.php?stid=30742904");
+
+  await multiRegion.click();
+  await expect(multiRegion).toHaveAttribute("aria-pressed", "false");
+  await page.locator(".preset-row").getByRole("button", { name: "欧区" }).click();
+  await expect(page.locator(".nga-board-grid").getByRole("button", { name: "欧区" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".nga-board-grid").getByRole("button", { name: "美区" })).toHaveAttribute("aria-pressed", "false");
 });
 
 test("requires explicit confirmation before enabling keep-login", async ({ page }) => {
@@ -281,6 +289,28 @@ test("requires explicit confirmation before enabling keep-login", async ({ page 
   });
   await keepLogin.click();
   await expect(keepLogin).toBeChecked();
+});
+
+test("requires explicit confirmation before enabling ordinary continue-page assistance", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /NGA 国服/ }).click();
+  await page.getByRole("button", { name: /高级设置/ }).click();
+  const assistance = page.getByLabel("自动处理普通继续浏览页");
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.type()).toBe("confirm");
+    expect(dialog.message()).toContain("自动处理普通继续浏览页说明");
+    await dialog.dismiss();
+  });
+  await assistance.click();
+  await expect(assistance).not.toBeChecked();
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("不会绕过登录、验证码、权限、风控或安全验证");
+    await dialog.accept();
+  });
+  await assistance.click();
+  await expect(assistance).toBeChecked();
 });
 
 test("aggregate search can run NGA only without an official dungeon", async ({ page }) => {

@@ -12,8 +12,8 @@
 - `features/partyfinder-helper.md`
   FF14 副本招募筛选工具的需求、接口、筛选语义和响应招募边界。
 
-- `features/nga-login-aggregation.md`
-  NGA 本地登录态聚合的需求、合规边界、样本字段、Parser 训练式工作流和 Parser v1 边界。
+- `features/nga-public-aggregation.md`
+  NGA 本地招募聚合的需求、合规边界、样本字段、Parser 训练式工作流和 Parser v1 边界。
 
 - `architecture.md`
   本地前端、本地代理、官方接口和 Tampermonkey 脚本的数据流与安全边界。
@@ -66,7 +66,7 @@
   Tauri 桌面端官方详情外链无法打开系统浏览器的修复记录。
 
 - `worklog/2026-05-08-nga-login-aggregation.md`
-  NGA 登录态本地聚合、保持登录状态和样本分析报告工作记录。
+  NGA 本地 WebView 招募读取早期工作记录；文件名保留历史分支口径，现行产品口径以公开招募页读取为主。
 
 - `worklog/2026-05-09-nga-parser-handoff.md`
   NGA Parser v1 当前实现、验证结果和新 thread 接手入口。
@@ -82,6 +82,9 @@
 
 - `worklog/2026-05-10-nga-cache-merge-precheck.md`
   NGA metadata 快扫、cache 生命周期、0 主题翻页保护和 merge/release 前 final QA 预检记录。
+
+- `worklog/2026-05-10-pr-review-public-aggregation.md`
+  PR review 后的公开招募聚合口径、继续浏览页辅助处理显式授权、Tauri 取消/并发加固和验证记录。
 
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。

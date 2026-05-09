@@ -109,6 +109,8 @@ export async function fetchNgaSessionStatus(signal?: AbortSignal): Promise<NgaSe
       available: false,
       loginStatus: "unknown",
       keepLogin: false,
+      windowOpened: false,
+      persistentProfileEnabled: false,
       dataLocation: "仅桌面版会保存本机网页窗口状态。",
       message: "浏览器预览仅能使用已保存的 NGA 招募。"
     };
@@ -141,6 +143,13 @@ export async function navigateNgaSession(startUrl: string, signal?: AbortSignal)
   return invokeTauri<NgaNavigateSessionPayload>("risingstones_nga_navigate_session", { startUrl }, signal);
 }
 
+export async function showNgaSession(signal?: AbortSignal): Promise<NgaVisiblePageStatusPayload> {
+  if (!isTauriRuntime()) {
+    throw new Error("NGA 窗口恢复需要使用桌面版。");
+  }
+  return invokeTauri<NgaVisiblePageStatusPayload>("risingstones_nga_show_session", undefined, signal);
+}
+
 export async function clearNgaSession(signal?: AbortSignal): Promise<NgaClearSessionPayload> {
   if (!isTauriRuntime()) {
     throw new Error("NGA 本机网页状态清理需要使用桌面版。");
@@ -148,7 +157,10 @@ export async function clearNgaSession(signal?: AbortSignal): Promise<NgaClearSes
   return invokeTauri<NgaClearSessionPayload>("risingstones_nga_clear_session", undefined, signal);
 }
 
-export async function fetchNgaVisiblePageStatus(signal?: AbortSignal): Promise<NgaVisiblePageStatusPayload> {
+export async function fetchNgaVisiblePageStatus(
+  autoHandleInterstitial = false,
+  signal?: AbortSignal
+): Promise<NgaVisiblePageStatusPayload> {
   if (!isTauriRuntime()) {
     return {
       opened: false,
@@ -158,11 +170,15 @@ export async function fetchNgaVisiblePageStatus(signal?: AbortSignal): Promise<N
       message: "浏览器预览没有桌面网页窗口。"
     };
   }
-  return invokeTauri<NgaVisiblePageStatusPayload>("risingstones_nga_visible_page_status", undefined, signal);
+  return invokeTauri<NgaVisiblePageStatusPayload>(
+    "risingstones_nga_visible_page_status",
+    { autoHandleInterstitial },
+    signal
+  );
 }
 
 export async function collectNgaVisibleSamples(
-  settings: Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs" | "includeDetails" | "recentActiveDays" | "refreshIntervalHours"> & {
+  settings: Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs" | "includeDetails" | "recentActiveDays" | "refreshIntervalHours" | "autoHandleInterstitial"> & {
     cachedSamples?: NgaCachedTopic[];
   },
   signal?: AbortSignal
@@ -178,6 +194,7 @@ export async function collectNgaVisibleSamples(
       includeDetails: settings.includeDetails,
       recentActiveDays: settings.recentActiveDays,
       refreshIntervalHours: settings.refreshIntervalHours,
+      autoHandleInterstitial: settings.autoHandleInterstitial,
       cachedSamples: settings.cachedSamples ?? []
     },
     signal
@@ -211,7 +228,7 @@ export async function saveNgaSamples(samples: NgaSample[], signal?: AbortSignal)
 
 export async function collectNgaSampleDetails(
   samples: NgaSample[],
-  settings: Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs">,
+  settings: Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs" | "autoHandleInterstitial">,
   signal?: AbortSignal
 ): Promise<NgaDetailCollectPayload> {
   if (!isTauriRuntime()) {
@@ -222,7 +239,8 @@ export async function collectNgaSampleDetails(
     {
       samples,
       maxItems: settings.maxItems,
-      requestIntervalMs: settings.requestIntervalMs
+      requestIntervalMs: settings.requestIntervalMs,
+      autoHandleInterstitial: settings.autoHandleInterstitial
     },
     signal
   );
