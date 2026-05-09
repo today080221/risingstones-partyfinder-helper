@@ -24,7 +24,7 @@
 
 ## Final QA
 
-- `npm test`：通过，5 个 test file，127/127 tests passed。
+- `npm test`：通过，5 个 test file，128/128 tests passed。
 - `npm run build`：通过，TypeScript 与 Vite production build passed。
 - `cargo check --manifest-path src-tauri/Cargo.toml`：通过。
 - `cargo test --manifest-path src-tauri/Cargo.toml`：通过，10/10 tests passed。
@@ -47,6 +47,9 @@
 - 最新 review 发现：多地区连续读取时，`applyNgaSamples` 使用函数创建时捕获的旧 `ngaSamples`，后续地区保存可能覆盖本轮前面地区的新样本。
 - 修复：`applyNgaSamples` 新增 `baseSamples` 选项；多地区聚合和登录后当前页读取都传入本轮运行中的 `collectedSamples`，确保顺序读取会累积合并。
 - 回归：`npm test` 127/127 passed，`npm run build` passed。
+- 最新 review 发现：列表 metadata 只有标题变化时，前端合并会优先保留带正文的旧样本，导致新标题被旧样本压掉。
+- 修复：合并时允许本轮列表 metadata 更新标题、更新时间、作者等轻字段，同时保留旧正文、正文复核时间和内容 hash；标题变化会触发单卡更新提示，但不强制打开正文。
+- 回归：`npm test` 128/128 passed，`npm run build` passed。
 
 ## Merge And Release Readiness
 

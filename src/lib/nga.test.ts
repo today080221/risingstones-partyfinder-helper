@@ -1542,6 +1542,39 @@ describe("nga cache refresh", () => {
     expect(result.samples[0].lastBoardRank).toBe(8);
   });
 
+  it("applies changed board titles without dropping cached detail bodies", () => {
+    const result = mergeNgaSamplesWithDiff(
+      [
+        sanitizeNgaSample({
+          title: "绝欧固定队招募 缺H2",
+          body: "正文里保留旧详情和联系方式",
+          url: "https://bbs.nga.cn/read.php?tid=123",
+          topicId: "123",
+          lastCheckedAt: "2026-05-09T08:00:00.000Z",
+          contentHash: "same"
+        })
+      ],
+      [
+        sanitizeNgaSample({
+          title: "绝欧固定队招募 缺D4",
+          url: "https://bbs.nga.cn/read.php?tid=123",
+          topicId: "123",
+          lastSeenAt: "2026-05-09T20:00:00.000Z",
+          lastBoardSeenAt: "2026-05-09T20:00:00.000Z",
+          lastBoardRank: 5,
+          contentHash: "same"
+        })
+      ],
+      20
+    );
+
+    expect(result.updatedKeys).toContain("123");
+    expect(result.samples[0].title).toBe("绝欧固定队招募 缺D4");
+    expect(result.samples[0].body).toContain("旧详情");
+    expect(result.samples[0].lastCheckedAt).toBe("2026-05-09T08:00:00.000Z");
+    expect(result.samples[0].lastBoardRank).toBe(5);
+  });
+
   it("archives inactive cache entries only after a full active-window scan", () => {
     const stale = sanitizeNgaSample({
       title: "绝欧固定队招募",

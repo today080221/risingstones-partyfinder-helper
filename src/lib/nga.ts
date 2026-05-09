@@ -5336,16 +5336,18 @@ function mergeNgaSamplePair(current: NgaSample, incoming: NgaSample): NgaSample 
   const incomingScore = ngaSampleCompletenessScore(incoming);
   const primary = incomingScore > currentScore ? incoming : current;
   const fallback = primary === incoming ? current : incoming;
+  const incomingHasFreshBoardMetadata = Boolean(incoming.lastBoardSeenAt || incoming.lastSeenAt || incoming.lastBoardRank !== undefined);
+  const metadataPrimary = incomingHasFreshBoardMetadata ? incoming : primary;
   const seenAgainAfterArchive = Boolean(incoming.lastBoardSeenAt && !incoming.archivedAt && current.archivedAt);
   return {
-    title: primary.title || fallback.title,
+    title: metadataPrimary.title || primary.title || fallback.title,
     body: primary.body || fallback.body,
-    url: primary.url || fallback.url,
-    author: primary.author || fallback.author,
-    publishedAt: primary.publishedAt || fallback.publishedAt,
-    updatedAt: primary.updatedAt || fallback.updatedAt,
-    forumId: primary.forumId || fallback.forumId,
-    topicId: primary.topicId || fallback.topicId,
+    url: metadataPrimary.url || primary.url || fallback.url,
+    author: metadataPrimary.author || primary.author || fallback.author,
+    publishedAt: metadataPrimary.publishedAt || primary.publishedAt || fallback.publishedAt,
+    updatedAt: metadataPrimary.updatedAt || primary.updatedAt || fallback.updatedAt,
+    forumId: metadataPrimary.forumId || primary.forumId || fallback.forumId,
+    topicId: metadataPrimary.topicId || primary.topicId || fallback.topicId,
     lastCheckedAt: latestIsoish(primary.lastCheckedAt, fallback.lastCheckedAt),
     lastSeenAt: latestIsoish(primary.lastSeenAt, fallback.lastSeenAt),
     detailFetchedAt: latestIsoish(primary.detailFetchedAt, fallback.detailFetchedAt),
@@ -5361,6 +5363,9 @@ function mergeNgaSamplePair(current: NgaSample, incoming: NgaSample): NgaSample 
 }
 
 function hasNgaSampleContentChanged(previous: NgaSample, next: NgaSample): boolean {
+  if (next.title && previous.title && next.title !== previous.title) {
+    return true;
+  }
   const previousHash = previous.contentHash || computeNgaSampleContentHash(previous);
   const nextHash = next.contentHash || computeNgaSampleContentHash(next);
   if (previousHash !== nextHash) {
