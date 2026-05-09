@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { filterRecruitRows } from "./filters";
-import { buildJobPickerGroups, jobCanEnter, matchesOpenPositions } from "./jobs";
+import { buildJobMeta, buildJobPickerGroups, jobCanEnter, matchesOpenPositions } from "./jobs";
 import { matchesKeywordFilter, parseKeywordFilter } from "./keywords";
 import { buildOfficialRecruitParams, collectPaginatedRows } from "./pagination";
-import { describeTimeParse, matchesTimeFilter, parseRecruitTime } from "./time";
+import {
+  describeTimeParse,
+  formatRecruitDailyDuration,
+  formatRecruitTimeDisplay,
+  matchesTimeFilter,
+  parseRecruitTime
+} from "./time";
 import type { MetaPayload, RecruitRow } from "../types";
 
 const meta: MetaPayload = {
@@ -67,7 +73,33 @@ describe("time parsing", () => {
   it("parses evening hour ranges", () => {
     const parsed = parseRecruitTime("晚8—11");
     expect(parsed.ranges[0]).toMatchObject({ start: 20, end: 23 });
-    expect(describeTimeParse("晚8—11")).toContain("20-23");
+    expect(describeTimeParse("晚8—11")).toContain("20:00-23:00");
+  });
+
+  it("deduplicates time words and keeps rest days out of active days", () => {
+    expect(formatRecruitTimeDisplay("晚间、周二、晚上、晚上8-10点")).toBe("周二 20:00-22:00");
+    expect(formatRecruitTimeDisplay("社畜、晚、晚9-12点、暂定休周日、19-6")).toBe("21:00-24:00");
+
+    const restOnly = parseRecruitTime("周二清CD，周末休");
+    expect(restOnly.days).toEqual(["2"]);
+    expect(restOnly.excludedDays).toEqual(expect.arrayContaining(["6", "0"]));
+    expect(formatRecruitTimeDisplay("周二清CD，周末休")).toBe("周二");
+  });
+
+  it("keeps daily duration separate from clock time", () => {
+    expect(formatRecruitTimeDisplay("每天至少10-12h，美西19-21，美东22-24，国内10-12")).toBe(
+      "19:00-21:00、22:00-24:00、10:00-12:00"
+    );
+    expect(formatRecruitDailyDuration("每天至少10-12h，美西19-21，美东22-24，国内10-12")).toBe("10-12小时/天");
+    expect(formatRecruitDailyDuration("每晚8-11之间打2-3小时")).toBe("2-3小时/天");
+    expect(formatRecruitTimeDisplay("M1-4S首周，晚8-11")).toBe("20:00-23:00");
+    expect(formatRecruitTimeDisplay("版本6.0-7.2，时间晚上9.30-11.30")).toBe("21:30-23:30");
+    expect(formatRecruitTimeDisplay("下午1-6 晚上8点半-11点半")).toBe("13:00-18:00、20:30-23:30");
+    expect(formatRecruitTimeDisplay("国内时间14:00?17:00 六休一")).toBe("14:00-17:00");
+    expect(formatRecruitTimeDisplay("早上10:00-14:00，晚上21:00-1:00，早上11:00-14:00")).toBe(
+      "10:00-14:00、21:00-次日01:00"
+    );
+    expect(formatRecruitTimeDisplay("晚12：00-2：00")).toBe("00:00-02:00");
   });
 
   it("matches requested hour overlaps and day filters", () => {
@@ -89,6 +121,15 @@ describe("time parsing", () => {
         showUnparsedTime: false
       })
     ).toBe(false);
+    expect(
+      matchesTimeFilter("晚12：00-2：00", {
+        timeText: "",
+        timeStart: "0",
+        timeEnd: "2",
+        timeDays: [],
+        showUnparsedTime: false
+      })
+    ).toBe(true);
   });
 });
 
@@ -142,7 +183,7 @@ describe("job and position filters", () => {
     expect(jobCanEnter(["13"], row.need_job, meta.jobMeta, { row, alliance: "B", noDuplicateJobs: true })).toBe(false);
   });
 
-  it("sorts picker groups by smart role order", () => {
+  it("sorts picker groups by role order", () => {
     const groups = buildJobPickerGroups({
       远程魔法职业: [{ id: "25", value: "黑魔法师", job_type: "远程魔法职业" }],
       限制职业: [{ id: "99", value: "限制", job_type: "限制职业" }],
@@ -155,13 +196,29 @@ describe("job and position filters", () => {
     });
 
     expect(groups.map((group) => group.label)).toEqual([
-      "智能分类",
+      "职能分类",
       "防护职业（T）",
       "治疗职业（奶）",
       "近战职业（近战）",
       "远程物理职业（远敏）",
       "远程魔法职业（法系）"
     ]);
+  });
+
+  it("expands official short ranged role labels to concrete jobs", () => {
+    const officialMeta = buildJobMeta({
+      职能分类: [
+        { id: "20", value: "近战职业", job_type: "职能分类" },
+        { id: "22", value: "远程物理", job_type: "职能分类" },
+        { id: "24", value: "远程魔法", job_type: "职能分类" }
+      ],
+      近战职业: [{ id: "21", value: "武僧", job_type: "近战职业" }],
+      远程物理职业: [{ id: "23", value: "吟游诗人", job_type: "远程物理职业" }],
+      远程魔法职业: [{ id: "25", value: "黑魔法师", job_type: "远程魔法职业" }]
+    });
+
+    expect(officialMeta.childIdsByCategoryId["22"]).toEqual(["23"]);
+    expect(officialMeta.childIdsByCategoryId["24"]).toEqual(["25"]);
   });
 
   it("detects empty full-party positions", () => {
@@ -181,6 +238,47 @@ describe("job and position filters", () => {
     expect(matchesOpenPositions(row, ["ST"], "A")).toBe(true);
     expect(matchesOpenPositions(row, ["ST"], "B")).toBe(false);
   });
+
+  it("uses NGA parsed positions and job names instead of assuming every slot is open", () => {
+    const recruitRow = recruit({
+      source: "nga",
+      sourceMeta: { platform: "nga", recruitKind: "recruit" },
+      parsedFields: { positions: ["D3"], jobs: ["吟游诗人"], excludedJobs: ["黑魔法师"] },
+      need_job: []
+    });
+    expect(matchesOpenPositions(recruitRow, ["D3"])).toBe(true);
+    expect(matchesOpenPositions(recruitRow, ["H2"])).toBe(false);
+    expect(jobCanEnter(["23"], recruitRow.need_job, meta.jobMeta, { row: recruitRow })).toBe(true);
+    expect(jobCanEnter(["25"], recruitRow.need_job, meta.jobMeta, { row: recruitRow })).toBe(false);
+
+    const seekingRow = recruit({
+      source: "nga",
+      sourceMeta: { platform: "nga", recruitKind: "seeking" },
+      parsedFields: { playerAvailablePositions: ["H1", "H2"], playerAvailableJobs: ["贤者"] },
+      need_job: []
+    });
+    expect(matchesOpenPositions(seekingRow, ["H2"])).toBe(true);
+    expect(matchesOpenPositions(seekingRow, ["D1"])).toBe(false);
+    expect(jobCanEnter(["13"], seekingRow.need_job, meta.jobMeta, { row: seekingRow })).toBe(true);
+  });
+
+  it("uses NGA parsed roster slots for duplicate-job filtering without rejecting all flexible selected jobs", () => {
+    const row = recruit({
+      source: "nga",
+      sourceMeta: { platform: "nga", recruitKind: "recruit" },
+      parsedFields: {
+        positions: ["H2"],
+        rosterSlots: {
+          H1: ["白魔法师"]
+        }
+      },
+      need_job: []
+    });
+
+    expect(jobCanEnter(["10"], row.need_job, meta.jobMeta, { row, noDuplicateJobs: true })).toBe(false);
+    expect(jobCanEnter(["12"], row.need_job, meta.jobMeta, { row, noDuplicateJobs: true })).toBe(true);
+    expect(jobCanEnter(["10", "12"], row.need_job, meta.jobMeta, { row, noDuplicateJobs: true })).toBe(true);
+  });
 });
 
 describe("local recruit filtering", () => {
@@ -192,6 +290,7 @@ describe("local recruit filtering", () => {
     const result = filterRecruitRows(
       rows,
       {
+        ngaRecruitView: "teams",
         progressText: "从0 -清cd",
         strategyText: "菓子",
         timeText: "",
@@ -222,6 +321,7 @@ describe("local recruit filtering", () => {
     const result = filterRecruitRows(
       rows,
       {
+        ngaRecruitView: "teams",
         progressText: "",
         strategyText: "",
         timeText: "",

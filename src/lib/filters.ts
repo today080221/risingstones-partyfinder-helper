@@ -74,7 +74,13 @@ function matchesGlobalExclude(row: RecruitRow, excludeTokens: string[]): boolean
     row.strategy,
     row.fb_time,
     row.team_composition,
+    row.sourceTitle,
+    row.sourceAuthor,
+    row.rawText,
     row.custom_label,
+    ...(Object.values(row.parsedFields ?? {}).flatMap((value) => (Array.isArray(value) ? value : [value])) ?? []),
+    ...(row.parseTags ?? []),
+    ...(row.parseWarnings ?? []),
     ...(row.labelInfo?.map((label) => label.name) ?? [])
   ]
     .filter((value): value is string => typeof value === "string")

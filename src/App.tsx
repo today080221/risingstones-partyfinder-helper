@@ -4,10 +4,14 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Database,
   Download,
+  Eraser,
   ExternalLink,
+  FileSearch,
   Filter,
   GitBranch,
+  Globe2,
   Loader2,
   RefreshCw,
   RotateCcw,
@@ -16,16 +20,26 @@ import {
   Square,
   XCircle
 } from "lucide-react";
-import type { MouseEvent, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   checkUpdate,
+  cancelNgaCollection,
+  clearNgaSession,
+  collectNgaSampleDetails,
+  collectNgaVisibleSamples,
   fetchAppVersion,
   fetchGeoIp,
   fetchMeta,
+  fetchNgaCollectionProgress,
+  fetchNgaSessionStatus,
+  fetchNgaVisiblePageStatus,
   fetchRecruitDetail,
   fetchRecruits,
-  installUpdate
+  installUpdate,
+  loadNgaSamples,
+  openNgaSession,
+  saveNgaSamples
 } from "./api";
 import { UPDATE_PROVIDER_LABELS } from "./config";
 import { isTauriRuntime, openExternalUrl } from "./lib/external-links";
@@ -37,7 +51,16 @@ import {
   formatJobNames,
   getOpenPositions
 } from "./lib/jobs";
-import { describeTimeParse } from "./lib/time";
+import {
+  analyzeNgaSamples,
+  classifyNgaSample,
+  mergeNgaSamples,
+  NGA_MAX_SAMPLE_STORE_ITEMS,
+  normalizeNgaCollectionSettings,
+  resolveKeepLoginPreference,
+  shouldShowNgaSample
+} from "./lib/nga";
+import { formatRecruitDailyDuration, formatRecruitTimeDisplay } from "./lib/time";
 import { getUpdateLevel, getUpdateStatusLabel, getUpdateStatusText } from "./lib/update-status";
 import { defaultFilters, loadUiState, saveUiState } from "./storage";
 import type {
@@ -48,10 +71,23 @@ import type {
   JobConfigEntry,
   LocalFilterState,
   MetaPayload,
+  NgaCollectPayload,
+  NgaCollectionProgress,
+  NgaCollectionSettings,
+  NgaDetailCollectPayload,
+  NgaParsedFields,
+  NgaRecruitViewMode,
+  NgaSample,
+  NgaSampleAnalysisReport,
+  NgaSessionStatusPayload,
+  NgaVisiblePageStatusPayload,
+  PositionKey,
   RecruitDetail,
   RecruitFetchPayload,
   RecruitQuery,
   RecruitRow,
+  RecruitSource,
+  RecruitSourceMeta,
   UpdateAsset,
   UpdateCheckPayload,
   UpdateProvider
@@ -74,6 +110,28 @@ const ALLIANCES: Array<["" | AllianceKey, string]> = [
   ["C", "团队C"]
 ];
 
+const SOURCE_OPTIONS: Array<["all" | RecruitSource, string]> = [
+  ["all", "全部来源"],
+  ["official", "石之家"],
+  ["nga", "NGA"]
+];
+const NGA_RECRUIT_VIEW_OPTIONS: Array<[NgaRecruitViewMode, string]> = [
+  ["teams", "队伍招募"],
+  ["seeking", "玩家求职"],
+  ["all", "全部"]
+];
+
+const NGA_KEEP_LOGIN_NOTICE =
+  "保持登录状态说明\n\n" +
+  "开启后，本软件会使用内置 WebView 的本地浏览器数据目录保存 NGA 的普通网页登录状态，这样你下次打开软件时通常不需要重新登录。\n\n" +
+  "本软件不会读取、导出、上传或显示你的账号密码、Cookie、token 或其他认证数据。登录状态仅由本机 WebView 按普通浏览器机制保存，数据保留在你的本机设备上。\n\n" +
+  "如果你使用的是公用电脑，或者不希望本机保存网页登录状态，请不要开启此选项。你也可以随时在设置中清除 NGA 登录状态。";
+const NGA_AUTO_COLLECT_MAX_WAIT_MS = 15 * 60 * 1000;
+const NGA_RECRUIT_BOARD_PRESETS = [
+  ["https://bbs.nga.cn/thread.php?stid=44366746", "国服招募板"],
+  ["https://bbs.nga.cn/thread.php?stid=42005319", "日服招募板"]
+] as const;
+
 export function App() {
   const initialState = useMemo(loadUiState, []);
   const [meta, setMeta] = useState<MetaPayload | null>(null);
@@ -89,6 +147,28 @@ export function App() {
   const [updateProvider, setUpdateProvider] = useState<UpdateProvider>(initialState.updateProvider);
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(initialState.autoCheckUpdates);
   const [autoDetectUpdateProvider, setAutoDetectUpdateProvider] = useState(initialState.autoDetectUpdateProvider);
+  const [sourceFilter, setSourceFilter] = useState<"all" | RecruitSource>(initialState.sourceFilter);
+  const [ngaSettings, setNgaSettings] = useState<NgaCollectionSettings>(
+    normalizeNgaCollectionSettings(initialState.ngaSettings)
+  );
+  const [ngaKeepLoginAcknowledged, setNgaKeepLoginAcknowledged] = useState(initialState.ngaKeepLoginAcknowledged);
+  const [ngaSession, setNgaSession] = useState<NgaSessionStatusPayload | null>(null);
+  const [ngaSamples, setNgaSamples] = useState<NgaSample[]>([]);
+  const [ngaSampleStoreLocation, setNgaSampleStoreLocation] = useState("");
+  const [ngaReport, setNgaReport] = useState<NgaSampleAnalysisReport | null>(null);
+  const [ngaProgress, setNgaProgress] = useState<NgaCollectionProgress>({
+    status: "idle",
+    currentUrl: "",
+    collected: 0,
+    maxItems: ngaSettings.maxItems,
+    message: "尚未开始 NGA 样本采集。"
+  });
+  const [ngaError, setNgaError] = useState("");
+  const [ngaMessage, setNgaMessage] = useState("");
+  const [isOpeningNga, setIsOpeningNga] = useState(false);
+  const [isClearingNga, setIsClearingNga] = useState(false);
+  const [isCollectingNga, setIsCollectingNga] = useState(false);
+  const [isAutoCollectArmed, setIsAutoCollectArmed] = useState(false);
   const [filters, setFilters] = useState<LocalFilterState>(initialState.filters);
   const [jobSearch, setJobSearch] = useState("");
   const [appVersion, setAppVersion] = useState<AppVersionPayload | null>(null);
@@ -105,6 +185,8 @@ export function App() {
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const updateAbortRef = useRef<AbortController | null>(null);
+  const ngaAutoCollectRunRef = useRef(0);
+  const ngaAutoCollectStartedRef = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -130,6 +212,50 @@ export function App() {
 
   useEffect(() => {
     const controller = new AbortController();
+    fetchNgaSessionStatus(controller.signal)
+      .then(setNgaSession)
+      .catch(() => {
+        setNgaSession({
+          available: false,
+          loginStatus: "unknown",
+          keepLogin: false,
+          dataLocation: "仅 Tauri 桌面版支持内置 NGA 登录窗口。",
+          message: "当前运行环境不支持 Tauri WebView 登录态聚合。"
+        });
+      });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadNgaSamples(controller.signal)
+      .then((payload) => {
+        const samples = mergeNgaSamples(payload.samples, NGA_MAX_SAMPLE_STORE_ITEMS);
+        setNgaSamples(samples);
+        setNgaSampleStoreLocation(payload.dataLocation);
+        if (samples.length > 0) {
+          setNgaReport(analyzeNgaSamples(samples));
+          setNgaMessage(payload.message);
+        }
+      })
+      .catch((error: Error) => {
+        if (error.name !== "AbortError") {
+          setNgaError(`NGA 本地样本读取失败：${error.message}`);
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!ngaSession?.available || !ngaSession.autoCollectOnStart || ngaAutoCollectStartedRef.current) {
+      return;
+    }
+    ngaAutoCollectStartedRef.current = true;
+    void openNgaAndCollectAfterLogin();
+  }, [ngaSession?.available, ngaSession?.autoCollectOnStart]);
+
+  useEffect(() => {
+    const controller = new AbortController();
     fetchGeoIp(controller.signal)
       .then((payload) => {
         setGeoInfo(payload);
@@ -152,6 +278,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      ngaAutoCollectRunRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!autoCheckUpdates || (autoDetectUpdateProvider && !geoResolved)) {
       return;
     }
@@ -160,6 +292,22 @@ export function App() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [autoCheckUpdates, autoDetectUpdateProvider, geoResolved, updateProvider]);
+
+  useEffect(() => {
+    if (!isCollectingNga) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      fetchNgaCollectionProgress()
+        .then((progress) => {
+          if (progress.status === "collecting") {
+            setNgaProgress(progress);
+          }
+        })
+        .catch(() => undefined);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isCollectingNga]);
 
   useEffect(() => {
     saveUiState({
@@ -174,6 +322,9 @@ export function App() {
       updateProvider,
       autoCheckUpdates,
       autoDetectUpdateProvider,
+      sourceFilter,
+      ngaSettings,
+      ngaKeepLoginAcknowledged,
       filters
     });
   }, [
@@ -188,6 +339,9 @@ export function App() {
     updateProvider,
     autoCheckUpdates,
     autoDetectUpdateProvider,
+    sourceFilter,
+    ngaSettings,
+    ngaKeepLoginAcknowledged,
     filters
   ]);
 
@@ -211,7 +365,20 @@ export function App() {
 
   const positionOptions = teamComposition === "轻锐小队" ? LIGHT_PARTY_POSITIONS : FULL_PARTY_POSITIONS;
 
-  const filtered = useMemo(() => filterRecruitRows(payload?.rows ?? [], filters, meta), [payload, filters, meta]);
+  const officialRows = useMemo(() => (payload?.rows ?? []).map(markOfficialRow), [payload]);
+  const ngaRows = useMemo(
+    () =>
+      ngaSamples
+        .filter((sample) => shouldShowNgaSample(sample, ngaSettings.filterMode))
+        .map((sample, index) => ngaSampleToRecruitRow(sample, index))
+        .filter((row) => matchesNgaRecruitView(row, filters.ngaRecruitView)),
+    [filters.ngaRecruitView, ngaSamples, ngaSettings.filterMode]
+  );
+  const combinedRows = useMemo(() => {
+    const rows = sourceFilter === "official" ? officialRows : sourceFilter === "nga" ? ngaRows : [...officialRows, ...ngaRows];
+    return rows;
+  }, [ngaRows, officialRows, sourceFilter]);
+  const filtered = useMemo(() => filterRecruitRows(combinedRows, filters, meta), [combinedRows, filters, meta]);
   const suggestedUpdateAsset = useMemo(
     () => selectUpdateAsset(updateInfo?.assets ?? [], appVersion),
     [appVersion, updateInfo]
@@ -238,6 +405,25 @@ export function App() {
 
   function updateFilters(patch: Partial<LocalFilterState>) {
     setFilters((current) => ({ ...current, ...patch }));
+  }
+
+  function updateNgaSettings(patch: Partial<NgaCollectionSettings>) {
+    setNgaSettings((current) => normalizeNgaCollectionSettings({ ...current, ...patch }));
+  }
+
+  async function applyNgaSamples(nextSamples: NgaSample[], message?: string): Promise<NgaSample[]> {
+    const sanitized = mergeNgaSamples(nextSamples, NGA_MAX_SAMPLE_STORE_ITEMS);
+    setNgaSamples(sanitized);
+    setNgaReport(sanitized.length ? analyzeNgaSamples(sanitized) : null);
+    try {
+      const saved = await saveNgaSamples(sanitized);
+      setNgaSampleStoreLocation(saved.dataLocation);
+      setNgaMessage(message ?? saved.message);
+    } catch (error) {
+      setNgaMessage(message ?? `已在当前页面保留 ${sanitized.length} 条 NGA 样本。`);
+      setNgaError(error instanceof Error ? `NGA 样本保存失败：${error.message}` : `NGA 样本保存失败：${String(error)}`);
+    }
+    return sanitized;
   }
 
   function toggleJobId(jobId: string) {
@@ -305,6 +491,333 @@ export function App() {
 
   function resetLocalFilters() {
     setFilters(defaultFilters);
+  }
+
+  async function toggleNgaKeepLogin(nextValue: boolean) {
+    const enabled = await resolveKeepLoginPreference(ngaSettings.keepLogin, nextValue, () => {
+      if (ngaKeepLoginAcknowledged) {
+        return true;
+      }
+      const confirmed = window.confirm(NGA_KEEP_LOGIN_NOTICE);
+      if (confirmed) {
+        setNgaKeepLoginAcknowledged(true);
+      }
+      return confirmed;
+    });
+    updateNgaSettings({ keepLogin: enabled });
+  }
+
+  async function openNgaLoginWindow() {
+    setIsOpeningNga(true);
+    setNgaError("");
+    setNgaMessage("");
+    try {
+      const result = await openNgaSession(ngaSettings);
+      setNgaSession(result);
+      setNgaMessage(result.message);
+    } catch (error) {
+      setNgaError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsOpeningNga(false);
+    }
+  }
+
+  async function clearNgaLoginState() {
+    const confirmed = window.confirm("将清除本应用 NGA WebView profile 下的本机登录状态，不影响系统浏览器。是否继续？");
+    if (!confirmed) {
+      return;
+    }
+    setIsClearingNga(true);
+    setNgaError("");
+    setNgaMessage("");
+    try {
+      const result = await clearNgaSession();
+      setNgaSession((current) => ({
+        available: current?.available ?? true,
+        loginStatus: "unknown",
+        keepLogin: false,
+        dataLocation: result.dataLocation,
+        message: result.message
+      }));
+      setNgaMessage(result.message);
+    } catch (error) {
+      setNgaError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsClearingNga(false);
+    }
+  }
+
+  async function collectNgaSamplesFromVisiblePage() {
+    setIsCollectingNga(true);
+    setNgaError("");
+    setNgaMessage("");
+    setNgaProgress({
+      status: "collecting",
+      currentUrl: "",
+      collected: 0,
+      maxItems: ngaSettings.maxItems,
+      message: "正在按设置的请求间隔采集当前 NGA 可见页面。"
+    });
+    try {
+      const result: NgaCollectPayload = await collectNgaVisibleSamples(ngaSettings);
+      const sanitized = await applyNgaSamples(
+        [...ngaSamples, ...result.samples],
+        `${result.progress.message} 本地样本池现有 ${mergeNgaSamples([...ngaSamples, ...result.samples], NGA_MAX_SAMPLE_STORE_ITEMS).length} 条。`
+      );
+      setNgaProgress(result.progress);
+      if (result.warnings.length) {
+        setNgaError(result.warnings.join("；"));
+      } else {
+        setNgaError("");
+      }
+      if (sanitized.length >= NGA_MAX_SAMPLE_STORE_ITEMS) {
+        setNgaMessage(`本地样本池已达到 ${NGA_MAX_SAMPLE_STORE_ITEMS} 条上限，后续会继续去重保留前 ${NGA_MAX_SAMPLE_STORE_ITEMS} 条。`);
+      }
+    } catch (error) {
+      setNgaProgress((current) => ({
+        ...current,
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+        finishedAt: new Date().toISOString()
+      }));
+      setNgaError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCollectingNga(false);
+    }
+  }
+
+  async function collectNgaDetailsForStoredSamples() {
+    if (ngaSamples.length === 0) {
+      setNgaError("当前没有可补正文的 NGA 样本。");
+      return;
+    }
+    setIsCollectingNga(true);
+    setNgaError("");
+    setNgaMessage("");
+    setNgaProgress({
+      status: "collecting",
+      currentUrl: "",
+      collected: 0,
+      maxItems: Math.min(ngaSettings.maxItems, ngaSamples.length),
+      message: "正在按已存帖子链接补齐正文，请保持 NGA 窗口可见。"
+    });
+    try {
+      const result: NgaDetailCollectPayload = await collectNgaSampleDetails(ngaSamples, ngaSettings);
+      const merged = await applyNgaSamples(
+        [...ngaSamples, ...result.samples],
+        `${result.progress.message} 本地样本池现有 ${mergeNgaSamples([...ngaSamples, ...result.samples], NGA_MAX_SAMPLE_STORE_ITEMS).length} 条。`
+      );
+      setNgaProgress(result.progress);
+      if (result.warnings.length) {
+        setNgaError(result.warnings.join("；"));
+      } else {
+        setNgaError("");
+      }
+      if (result.updated === 0 && merged.some((sample) => !sample.body)) {
+        setNgaMessage("本轮没有新增正文。请确认 NGA 窗口处于已登录状态，且帖子详情页可正常打开。");
+      }
+    } catch (error) {
+      setNgaProgress((current) => ({
+        ...current,
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+        finishedAt: new Date().toISOString()
+      }));
+      setNgaError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCollectingNga(false);
+    }
+  }
+
+  async function openNgaAndCollectAfterLogin() {
+    const runId = ngaAutoCollectRunRef.current + 1;
+    ngaAutoCollectRunRef.current = runId;
+    setIsAutoCollectArmed(true);
+    setIsCollectingNga(true);
+    setIsOpeningNga(true);
+    setNgaError("");
+    setNgaMessage("已进入待命：请在弹出的 NGA 窗口登录，并打开招募版面或帖子页。");
+    const startedAt = new Date().toISOString();
+    let collectedSamples = ngaSamples;
+    setNgaProgress({
+      status: "collecting",
+      currentUrl: "",
+      collected: collectedSamples.length,
+      maxItems: ngaSettings.maxItems,
+      message: "等待你完成 NGA 登录并打开招募页面；可随时点击停止。",
+      startedAt
+    });
+
+    try {
+      const sessionResult = await openNgaSession(ngaSettings);
+      setNgaSession(sessionResult);
+      setNgaMessage("NGA 窗口已打开。登录完成后请停留在招募列表或帖子页，工具会按请求间隔检查当前可见页面。");
+    } catch (error) {
+      setNgaError(error instanceof Error ? error.message : String(error));
+      setNgaProgress((current) => ({
+        ...current,
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+        finishedAt: new Date().toISOString()
+      }));
+      setIsCollectingNga(false);
+      setIsAutoCollectArmed(false);
+      return;
+    } finally {
+      setIsOpeningNga(false);
+    }
+
+    const interval = Math.max(2_000, Math.min(15_000, ngaSettings.requestIntervalMs));
+    const maxAttempts = Math.max(1, Math.ceil(NGA_AUTO_COLLECT_MAX_WAIT_MS / interval));
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      if (ngaAutoCollectRunRef.current !== runId) {
+        setNgaProgress((current) => ({
+          ...current,
+          status: "cancelled",
+          message: "已停止登录后自动采集待命。",
+          finishedAt: new Date().toISOString()
+        }));
+        setIsCollectingNga(false);
+        setIsAutoCollectArmed(false);
+        return;
+      }
+
+      setNgaProgress((current) => ({
+        ...current,
+        status: "collecting",
+        collected: collectedSamples.length,
+        maxItems: ngaSettings.maxItems,
+        message: `等待登录/目标页中，第 ${attempt}/${maxAttempts} 次检查；请保持 NGA 窗口可见并停留在招募页面。`
+      }));
+
+      let pageStatus: NgaVisiblePageStatusPayload;
+      try {
+        pageStatus = await fetchNgaVisiblePageStatus();
+      } catch (error) {
+        setNgaProgress((current) => ({
+          ...current,
+          status: "collecting",
+          message: `暂时无法读取 NGA 窗口地址，将继续等待：${error instanceof Error ? error.message : String(error)}`
+        }));
+        await sleep(interval);
+        continue;
+      }
+
+      if (!pageStatus.opened) {
+        setNgaProgress((current) => ({
+          ...current,
+          status: "cancelled",
+          currentUrl: "",
+          message: "NGA 登录窗口已关闭，登录后采集待命已停止。",
+          finishedAt: new Date().toISOString()
+        }));
+        setNgaMessage("NGA 窗口已关闭；没有继续后台采集。");
+        setIsCollectingNga(false);
+        setIsAutoCollectArmed(false);
+        return;
+      }
+
+      if (!pageStatus.allowed) {
+        setNgaError("");
+        setNgaProgress((current) => ({
+          ...current,
+          status: "collecting",
+          currentUrl: pageStatus.currentUrl,
+          collected: collectedSamples.length,
+          maxItems: ngaSettings.maxItems,
+          message: pageStatus.message
+        }));
+        setNgaMessage("检测到当前仍在登录/第三方授权页面；回到 NGA 招募页面后会继续采集。");
+        await sleep(interval);
+        continue;
+      }
+
+      setNgaError("");
+      let result: NgaCollectPayload;
+      try {
+        result = await collectNgaVisibleSamples(ngaSettings);
+      } catch (error) {
+        setNgaProgress((current) => ({
+          ...current,
+          status: "error",
+          message: error instanceof Error ? error.message : String(error),
+          finishedAt: new Date().toISOString()
+        }));
+        setNgaError(error instanceof Error ? error.message : String(error));
+        setIsCollectingNga(false);
+        setIsAutoCollectArmed(false);
+        return;
+      }
+      if (ngaAutoCollectRunRef.current !== runId) {
+        setNgaProgress(result.progress);
+        setIsCollectingNga(false);
+        setIsAutoCollectArmed(false);
+        return;
+      }
+      if (result.samples.length > 0) {
+        const sanitized = await applyNgaSamples(
+          [...collectedSamples, ...result.samples],
+          `已在 NGA 当前可见页面采集到 ${result.samples.length} 条样本，本地样本池现有 ${mergeNgaSamples([...collectedSamples, ...result.samples], NGA_MAX_SAMPLE_STORE_ITEMS).length} 条。`
+        );
+        collectedSamples = sanitized;
+        setNgaProgress(result.progress);
+        if (result.warnings.length) {
+          setNgaError(result.warnings.join("；"));
+        } else {
+          setNgaError("");
+        }
+        setIsCollectingNga(false);
+        setIsAutoCollectArmed(false);
+        return;
+      }
+
+      setNgaProgress({
+        ...result.progress,
+        status: "collecting",
+        collected: collectedSamples.length,
+        maxItems: ngaSettings.maxItems,
+        message: "当前 NGA 可见页面暂未识别到招募样本；将继续按请求间隔等待。"
+      });
+      setNgaMessage("还没识别到招募样本。登录后请打开 NGA 招募列表或具体帖子页。");
+    }
+
+    setNgaProgress((current) => ({
+      ...current,
+      status: "cancelled",
+      message: "登录后自动采集待命已到达 15 分钟上限，未继续后台等待。",
+      finishedAt: new Date().toISOString()
+    }));
+    setIsCollectingNga(false);
+    setIsAutoCollectArmed(false);
+  }
+
+  async function stopNgaCollection() {
+    ngaAutoCollectRunRef.current += 1;
+    try {
+      const progress = await cancelNgaCollection();
+      setNgaProgress(progress);
+    } catch {
+      setNgaProgress((current) => ({
+        ...current,
+        status: "cancelled",
+        message: "已请求停止 NGA 样本采集。",
+        finishedAt: new Date().toISOString()
+      }));
+    } finally {
+      setIsCollectingNga(false);
+      setIsAutoCollectArmed(false);
+    }
+  }
+
+  async function clearNgaSamples() {
+    await applyNgaSamples([], "已清空 NGA 本地样本。");
+    setNgaProgress({
+      status: "idle",
+      currentUrl: "",
+      collected: 0,
+      maxItems: ngaSettings.maxItems,
+      message: "已清空 NGA 本地样本。"
+    });
   }
 
   function applyUpdateProvider(provider: UpdateProvider) {
@@ -376,7 +889,7 @@ export function App() {
             onClick={() => setSidebarCollapsed((value) => !value)}
             title={sidebarCollapsed ? "展开筛选器" : "折叠筛选器"}
           >
-            石
+            <AppMark />
           </button>
           <div>
             <h1>副本招募筛选器</h1>
@@ -394,7 +907,7 @@ export function App() {
 
         <div className="sidebar-content">
         <section className="panel">
-          <SectionTitle icon={<Shield size={16} />} title="官方拉取条件" />
+          <SectionTitle icon={<Shield size={16} />} title="招募筛选条件" />
           <Field label="副本类型">
             <select value={fbType} onChange={(event) => setFbType(event.target.value)} disabled={!meta}>
               <option value="">全部类型</option>
@@ -436,7 +949,7 @@ export function App() {
             </select>
           </Field>
           {teamComposition === "团队" && (
-            <Field label="官方团队">
+            <Field label="拉取团队">
               <select value={officialAlliance} onChange={(event) => setOfficialAlliance(event.target.value as AllianceKey)}>
                 {ALLIANCES.map(([value, label]) => (
                   <option key={value || "all"} value={value}>
@@ -446,7 +959,7 @@ export function App() {
               </select>
             </Field>
           )}
-          <Field label="官方位置">
+          <Field label="拉取位置">
             <select value={officialPosition} onChange={(event) => setOfficialPosition(event.target.value)}>
               <option value="">不限位置</option>
               {positionOptions.map((position) => (
@@ -456,7 +969,7 @@ export function App() {
               ))}
             </select>
           </Field>
-          <Field label="官方标签">
+          <Field label="拉取标签">
             <div className="chip-grid">
               {meta?.labels.map((label) => (
                 <ToggleChip
@@ -475,7 +988,59 @@ export function App() {
         </section>
 
         <section className="panel">
-          <SectionTitle icon={<Filter size={16} />} title="本地二次筛选" />
+          <SectionTitle icon={<Globe2 size={16} />} title="数据来源" />
+          <Field label="结果来源">
+            <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as "all" | RecruitSource)}>
+              {SOURCE_OPTIONS.map(([value, label]) => (
+                <option value={value} key={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="浏览视图">
+            <div className="segmented-control">
+              {NGA_RECRUIT_VIEW_OPTIONS.map(([value, label]) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={filters.ngaRecruitView === value ? "active" : ""}
+                  onClick={() => updateFilters({ ngaRecruitView: value })}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <NgaPanel
+            settings={ngaSettings}
+            session={ngaSession}
+            progress={ngaProgress}
+            sampleCount={ngaSamples.length}
+            visibleSampleCount={ngaRows.length}
+            sampleStoreLocation={ngaSampleStoreLocation}
+            report={ngaReport}
+            isOpening={isOpeningNga}
+            isClearing={isClearingNga}
+            isCollecting={isCollectingNga}
+            isAutoCollectArmed={isAutoCollectArmed}
+            message={ngaMessage}
+            error={ngaError}
+            onSettingsChange={updateNgaSettings}
+            onKeepLoginChange={(nextValue) => void toggleNgaKeepLogin(nextValue)}
+            onOpen={() => void openNgaLoginWindow()}
+            onClear={() => void clearNgaLoginState()}
+            onAutoCollect={() => void openNgaAndCollectAfterLogin()}
+            onCollect={() => void collectNgaSamplesFromVisiblePage()}
+            onCollectDetails={() => void collectNgaDetailsForStoredSamples()}
+            onStop={() => void stopNgaCollection()}
+            onAnalyze={() => setNgaReport(analyzeNgaSamples(ngaSamples))}
+            onClearSamples={() => void clearNgaSamples()}
+          />
+        </section>
+
+        <section className="panel">
+          <SectionTitle icon={<Filter size={16} />} title="招募筛选条件" />
           <Field label="进度关键词">
             <input
               value={filters.progressText}
@@ -550,7 +1115,7 @@ export function App() {
               checked={filters.showUnparsedTime}
               onChange={(event) => updateFilters({ showUnparsedTime: event.target.checked })}
             />
-            保留无法解析时间的招募
+            保留时间不明确的招募
           </label>
           {teamComposition === "团队" && (
             <Field label="本地团队">
@@ -581,7 +1146,7 @@ export function App() {
               ))}
             </div>
           </Field>
-          <Field label="我的职业可进">
+          <Field label="我想玩的职业">
             <JobPicker
               groups={groupedJobs}
               selectedIds={filters.selectedJobIds}
@@ -599,11 +1164,11 @@ export function App() {
               checked={filters.noDuplicateJobs}
               onChange={(event) => updateFilters({ noDuplicateJobs: event.target.checked })}
             />
-            无重复职业
+            避开重复职业
           </label>
           <button className="secondary-button full" onClick={resetLocalFilters}>
             <RotateCcw size={15} />
-            清空本地筛选
+            清空筛选
           </button>
         </section>
 
@@ -734,7 +1299,11 @@ export function App() {
           <div>
             <div className="toolbar-title">招募结果</div>
             <div className="toolbar-subtitle">
-              {selectedConfig ? `${selectedConfig.fb_type} / ${selectedConfig.team_composition}` : "请选择副本名称开始"}
+              {sourceFilter === "nga"
+                ? `NGA 本地样本 ${ngaSamples.length} 条`
+                : selectedConfig
+                  ? `${selectedConfig.fb_type} / ${selectedConfig.team_composition}`
+                  : "请选择副本名称或采集 NGA 样本开始"}
             </div>
           </div>
           <div className="toolbar-actions">
@@ -765,11 +1334,11 @@ export function App() {
         {fetchError && <Notice tone="error" text={fetchError} />}
         {payload?.warnings.map((warning) => <Notice key={warning} tone="warning" text={warning} />)}
 
-        {!payload && !isLoading && (
+        {combinedRows.length === 0 && !isLoading && (
           <div className="empty-state">
             <Search size={28} />
-            <h2>先选择副本，再拉取完整分页</h2>
-            <p>官方页面滚动时分批加载；这里会按同一组官方条件顺序翻页，然后只在本地筛选。</p>
+            <h2>先选择石之家副本，或采集 NGA 招募帖</h2>
+            <p>石之家来源会按当前条件顺序翻页；NGA 来源只整理你在本机 WebView 中可正常浏览的招募帖内容。</p>
           </div>
         )}
 
@@ -779,11 +1348,11 @@ export function App() {
           ))}
         </div>
 
-        {payload && filtered.rows.length === 0 && (
+        {combinedRows.length > 0 && filtered.rows.length === 0 && (
           <div className="empty-state">
             <Square size={28} />
             <h2>没有命中的招募</h2>
-            <p>可以放宽关键词、时间段或职业/位置条件。官方已拉取 {payload.fetched} 条。</p>
+            <p>可以放宽关键词、时间段、职业/位置或来源条件。当前共有 {combinedRows.length} 条本地候选。</p>
           </div>
         )}
       </main>
@@ -814,6 +1383,243 @@ function ToggleChip({ active, label, onClick }: { active: boolean; label: string
     <button type="button" className={active ? "chip active" : "chip"} onClick={onClick}>
       {label}
     </button>
+  );
+}
+
+function AppMark() {
+  return (
+    <svg className="app-mark-icon" viewBox="0 0 40 40" aria-hidden="true">
+      <rect x="5" y="5" width="30" height="30" rx="7" />
+      <path d="M20 8 L28 18 L20 32 L12 18 Z" />
+      <path d="M20 8 L20 32 M12 18 L28 18" />
+      <circle cx="20" cy="20" r="3.2" />
+    </svg>
+  );
+}
+
+function NgaPanel({
+  settings,
+  session,
+  progress,
+  sampleCount,
+  visibleSampleCount,
+  sampleStoreLocation,
+  report,
+  isOpening,
+  isClearing,
+  isCollecting,
+  isAutoCollectArmed,
+  message,
+  error,
+  onSettingsChange,
+  onKeepLoginChange,
+  onOpen,
+  onClear,
+  onAutoCollect,
+  onCollect,
+  onCollectDetails,
+  onStop,
+  onAnalyze,
+  onClearSamples
+}: {
+  settings: NgaCollectionSettings;
+  session: NgaSessionStatusPayload | null;
+  progress: NgaCollectionProgress;
+  sampleCount: number;
+  visibleSampleCount: number;
+  sampleStoreLocation: string;
+  report: NgaSampleAnalysisReport | null;
+  isOpening: boolean;
+  isClearing: boolean;
+  isCollecting: boolean;
+  isAutoCollectArmed: boolean;
+  message: string;
+  error: string;
+  onSettingsChange: (patch: Partial<NgaCollectionSettings>) => void;
+  onKeepLoginChange: (nextValue: boolean) => void;
+  onOpen: () => void;
+  onClear: () => void;
+  onAutoCollect: () => void;
+  onCollect: () => void;
+  onCollectDetails: () => void;
+  onStop: () => void;
+  onAnalyze: () => void;
+  onClearSamples: () => void;
+}) {
+  const available = session?.available ?? false;
+  const loginLabel =
+    session?.loginStatus === "logged_in" ? "已登录" : session?.loginStatus === "not_logged_in" ? "未登录" : "状态未知";
+  const latestTime = progress.finishedAt ? formatDateTime(progress.finishedAt) : "暂无";
+
+  return (
+    <div className="nga-panel">
+      <div className="nga-status-grid">
+        <div className="inline-value">
+          {loginLabel}
+          <span>{available ? "Tauri WebView" : "不可用"}</span>
+        </div>
+        <div className="inline-value compact-value">{sampleCount} 条样本</div>
+      </div>
+
+      <label className="check-row">
+        <input type="checkbox" checked={settings.keepLogin} onChange={(event) => onKeepLoginChange(event.target.checked)} />
+        保持登录状态
+      </label>
+
+      <Field label="NGA 招募板地址">
+        <input
+          value={settings.startUrl}
+          onChange={(event) => onSettingsChange({ startUrl: event.target.value })}
+          placeholder="https://bbs.nga.cn/"
+        />
+        <div className="preset-row">
+          {NGA_RECRUIT_BOARD_PRESETS.map(([url, label]) => (
+            <button type="button" className="tiny-button" key={url} onClick={() => onSettingsChange({ startUrl: url })}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <div className="two-columns">
+        <Field label="翻页间隔(秒)">
+          <input
+            type="number"
+            min="2"
+            max="15"
+            value={Math.round(settings.requestIntervalMs / 1000)}
+            onChange={(event) => onSettingsChange({ requestIntervalMs: Number(event.target.value) * 1000 })}
+          />
+        </Field>
+        <Field label="本次最多读取">
+          <input
+            type="number"
+            min="1"
+            max={NGA_MAX_SAMPLE_STORE_ITEMS}
+            value={settings.maxItems}
+            onChange={(event) => onSettingsChange({ maxItems: Number(event.target.value) })}
+          />
+        </Field>
+      </div>
+
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={settings.includeDetails}
+          onChange={(event) => onSettingsChange({ includeDetails: event.target.checked })}
+        />
+        同时打开帖子正文
+      </label>
+
+      <Field label="筛选档位">
+        <select value={settings.filterMode} onChange={(event) => onSettingsChange({ filterMode: event.target.value as NgaCollectionSettings["filterMode"] })}>
+          <option value="strict">严格</option>
+          <option value="balanced">平衡（默认）</option>
+          <option value="loose">宽松</option>
+          <option value="unrecognized">未识别</option>
+        </select>
+      </Field>
+
+      <div className="nga-action-grid">
+        <button type="button" className="secondary-button" onClick={onOpen} disabled={isOpening || !available}>
+          {isOpening ? <Loader2 size={15} className="spin" /> : <Globe2 size={15} />}
+          打开 NGA
+        </button>
+        <button type="button" className="secondary-button" onClick={onClear} disabled={isClearing || !available}>
+          {isClearing ? <Loader2 size={15} className="spin" /> : <Eraser size={15} />}
+          清除登录
+        </button>
+      </div>
+
+      <div className="nga-action-grid">
+        <button type="button" className="primary-button" onClick={onAutoCollect} disabled={isCollecting || isOpening || !available}>
+          {isCollecting ? <Loader2 size={15} className="spin" /> : <Database size={15} />}
+          登录并采集
+        </button>
+        <button type="button" className="danger-button" onClick={onStop} disabled={!isCollecting && !isAutoCollectArmed}>
+          <XCircle size={15} />
+          停止
+        </button>
+      </div>
+
+      <button type="button" className="secondary-button full" onClick={onCollect} disabled={isCollecting || !available}>
+        {isCollecting && !isAutoCollectArmed ? <Loader2 size={15} className="spin" /> : <Database size={15} />}
+          {settings.includeDetails ? "采集当前页和正文" : "采集当前页"}
+      </button>
+
+      <button
+        type="button"
+        className="secondary-button full"
+        onClick={onCollectDetails}
+        disabled={isCollecting || !available || sampleCount === 0}
+      >
+        {isCollecting && !isAutoCollectArmed ? <Loader2 size={15} className="spin" /> : <FileSearch size={15} />}
+        补齐已存正文
+      </button>
+
+      <div className={`nga-progress ${progress.status}`}>
+        <strong>{progress.message}</strong>
+        <span>
+          进度：{progress.collected}/{progress.maxItems || settings.maxItems} · 最近采集：{latestTime}
+        </span>
+        {progress.currentUrl ? <em>{progress.currentUrl}</em> : null}
+      </div>
+
+      <div className="mini-notice warning">
+        登录状态位置：{session?.dataLocation || "待读取"}。样本保存位置：{sampleStoreLocation || "待读取"}。
+        当前默认展示 {visibleSampleCount}/{sampleCount} 条，疑似已招满、已关闭、广告或公告会在平衡档默认隐藏；采集只保存标题、正文、链接、作者、发布时间、版面 ID 和主题 ID。
+      </div>
+      {message ? <div className="mini-notice success">{message}</div> : null}
+      {error ? <div className="mini-notice error">{error}</div> : null}
+
+      <div className="nga-action-grid">
+        <button type="button" className="secondary-button" onClick={onAnalyze} disabled={sampleCount === 0}>
+          <FileSearch size={15} />
+          生成报告
+        </button>
+        <button type="button" className="secondary-button" onClick={onClearSamples} disabled={sampleCount === 0}>
+          <RotateCcw size={15} />
+          清空样本
+        </button>
+      </div>
+
+      {report && <NgaReportSummary report={report} />}
+    </div>
+  );
+}
+
+function NgaReportSummary({ report }: { report: NgaSampleAnalysisReport }) {
+  return (
+    <div className="nga-report">
+      <div className="nga-report-head">
+        <strong>样本分析报告</strong>
+        <span>{report.sampleCount} 条</span>
+      </div>
+      <div className="nga-report-list">
+        <span>标题结构：{formatCandidates(report.titleStructures)}</span>
+        <span>正文结构：{formatCandidates(report.bodyStructures)}</span>
+        <span>副本候选：{formatCandidates(report.dungeonAliases)}</span>
+        <span>进度候选：{formatCandidates(report.progressExpressions)}</span>
+        <span>职业/位置：{formatCandidates(report.jobPositionExpressions)}</span>
+        <span>时间表达：{formatCandidates(report.timeExpressions)}</span>
+      </div>
+      {report.warnings.length ? (
+        <div className="nga-question-box">
+          <strong>样本提示</strong>
+          {report.warnings.slice(0, 4).map((warning) => (
+            <span key={warning}>{warning}</span>
+          ))}
+        </div>
+      ) : null}
+      <div className="nga-question-box">
+        <strong>待用户确认问题</strong>
+        {report.confirmationQuestions.length ? (
+          report.confirmationQuestions.slice(0, 6).map((question) => <span key={question}>{question}</span>)
+        ) : (
+          <span>暂无高频歧义表达。</span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -919,7 +1725,7 @@ function StatusStrip({
 }) {
   return (
     <div className="status-strip">
-      <StatusItem label="官方总数" value={payload ? String(payload.count) : "-"} />
+      <StatusItem label="石之家总数" value={payload ? String(payload.count) : "-"} />
       <StatusItem label="已拉取" value={payload ? String(payload.fetched) : isLoading ? "拉取中" : "-"} />
       <StatusItem label="当前命中" value={payload ? String(visibleCount) : "-"} />
       <StatusItem label="更新时间" value={payload ? new Date(payload.fetchedAt).toLocaleTimeString() : "-"} />
@@ -998,8 +1804,23 @@ function RecruitCard({
   const [detail, setDetail] = useState<RecruitDetail | null>(null);
   const [detailError, setDetailError] = useState("");
   const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const source = row.source ?? "official";
   const openPositions = getOpenPositions(row, alliance);
-  const detailUrl = `https://ff14risingstones.web.sdo.com/pc/index.html#/recruit/party?id=${row.id}`;
+  const ngaDisplayJobGroups = getNgaDisplayJobGroups(row, meta);
+  const ngaKindLabel = formatNgaRecruitKind(row.sourceMeta?.recruitKind);
+  const jobSideLabel = source === "nga" && row.sourceMeta?.recruitKind === "seeking" ? "可用职业" : "需求职业";
+  const positionSideLabel = source === "nga" && row.sourceMeta?.recruitKind === "seeking" ? "可用位置" : "空缺位置";
+  const sourceLabel = formatRecruitSourceLabel(source);
+  const sidePositionLabels = source === "nga" ? formatNgaPositionRequirementLabels(row.parsedFields ?? {}, row.sourceMeta?.recruitKind) : openPositions;
+  const timeText = formatRecruitTimeForDisplay(row.fb_time);
+  const dailyDuration = getRecruitDailyDuration(row);
+  const timeHintParts = [dailyDuration, row.parsedFields?.timeSupplement].filter(Boolean);
+  const timeHint = timeHintParts.length ? timeHintParts.join(" · ") : getRecruitTimeHint(row.fb_time, timeText);
+  const visibleNgaTags = source === "nga" ? getVisibleNgaTags(row) : [];
+  const detailUrl =
+    source === "nga" && row.sourceUrl
+      ? row.sourceUrl
+      : `https://ff14risingstones.web.sdo.com/pc/index.html#/recruit/party?id=${row.id}`;
   const remaining = getRemainingTime(row.end_time);
   const shownDetail = detail ?? row;
 
@@ -1007,6 +1828,9 @@ function RecruitCard({
     const nextExpanded = !expanded;
     setExpanded(nextExpanded);
     if (!nextExpanded || detail || isDetailLoading) {
+      return;
+    }
+    if (source === "nga") {
       return;
     }
 
@@ -1022,27 +1846,42 @@ function RecruitCard({
     }
   }
 
-  function handleOfficialDetailClick(event: MouseEvent<HTMLAnchorElement>) {
+  function handleDetailClick(event: MouseEvent<HTMLAnchorElement>) {
     if (!isTauriRuntime()) {
       return;
     }
 
     event.preventDefault();
     void openExternalUrl(detailUrl).catch((error) => {
-      console.error("打开官方详情失败", error);
-      window.alert(`打开官方详情失败：${error instanceof Error ? error.message : String(error)}`);
+      console.error("打开详情失败", error);
+      window.alert(`打开详情失败：${error instanceof Error ? error.message : String(error)}`);
     });
   }
 
   return (
-    <article className="recruit-card">
+    <article className={`recruit-card source-${source}`}>
       <div className="card-main">
         <div className="card-heading">
           <div>
-            <h2>{row.fb_name}</h2>
-            <p>
-              {row.fb_type} · {row.area_name}/{row.group_name}
-              {row.target_area_name ? ` · 目标 ${row.target_area_name}` : ""}
+            <div className="source-heading">
+              <span className={source === "nga" ? "source-badge nga" : "source-badge official"}>
+                {sourceLabel}
+              </span>
+              <h2>{row.fb_name}</h2>
+            </div>
+            <p className={source === "nga" ? "card-subtitle nga-subtitle" : "card-subtitle"}>
+              {source === "nga" ? (
+                <>
+                  <span className="subtitle-kind">{ngaKindLabel}</span>
+                  <span className="subtitle-title">{row.sourceTitle || "NGA 原帖"}</span>
+                  <span className="subtitle-taxonomy">{row.area_name}/{row.group_name}</span>
+                </>
+              ) : (
+                <>
+                  {row.fb_type} · {row.area_name}/{row.group_name}
+                  {row.target_area_name ? ` · 目标 ${row.target_area_name}` : ""}
+                </>
+              )}
             </p>
           </div>
           <div className="card-actions">
@@ -1055,22 +1894,27 @@ function RecruitCard({
               target="_blank"
               rel="noreferrer"
               className="detail-link"
-              onClick={handleOfficialDetailClick}
+              onClick={handleDetailClick}
             >
-              官方详情
+              查看详情
               <ExternalLink size={14} />
             </a>
           </div>
         </div>
 
         <div className="detail-grid">
-          <Detail label="进度" value={row.progress || "未填写"} />
-          <Detail label="攻略" value={row.strategy || "未填写"} />
-          <Detail label="时间" value={row.fb_time || "未填写"} hint={describeTimeParse(row.fb_time || "")} />
-          <Detail label="响应" value={`${row.response_num ?? 0} 人`} hint={remaining} />
+          <Detail label="进度" value={row.progress || "未识别"} />
+          <Detail label="攻略" value={row.strategy || "未识别"} />
+          <Detail label="时间" value={timeText} hint={timeHint} />
+          <Detail label={source === "nga" ? "发布" : "响应"} value={source === "nga" ? row.sourcePublishedAt || "未识别" : `${row.response_num ?? 0} 人`} hint={source === "nga" ? row.sourceAuthor : remaining} />
         </div>
 
         <div className="tag-row">
+          {visibleNgaTags.map((tag) => (
+            <span className={`soft-tag ${getNgaTagClass(tag)}`} key={tag}>
+              {tag}
+            </span>
+          ))}
           {row.labelInfo?.map((label) => (
             <span className="soft-tag" key={label.id}>
               {label.name}
@@ -1080,9 +1924,17 @@ function RecruitCard({
       </div>
 
       <div className="card-side">
-        <div className="side-label">需求职业</div>
+        <div className="side-label">{jobSideLabel}</div>
         <div className="job-icons">
-          {row.jobInfo?.length ? (
+          {source === "nga" ? (
+            ngaDisplayJobGroups.length ? (
+              ngaDisplayJobGroups.map((group) => (
+                <NgaJobPillGroup group={group} key={group.key} />
+              ))
+            ) : (
+              <span className="muted">{ngaKindLabel}</span>
+            )
+          ) : row.jobInfo?.length ? (
             row.jobInfo.map((job) => (
               <span className="job-pill" key={job.id} title={job.value}>
                 {job.job_pic_url ? <img src={job.job_pic_url} alt="" /> : null}
@@ -1093,10 +1945,10 @@ function RecruitCard({
             <span className="muted">{meta ? formatJobNames(row.need_job ?? [], meta.jobMeta) : row.need_job?.join("、")}</span>
           )}
         </div>
-        <div className="side-label">空缺位置</div>
+        <div className="side-label">{positionSideLabel}</div>
         <div className="position-list">
-          {openPositions.length ? (
-            openPositions.map((position) => (
+          {sidePositionLabels.length ? (
+            sidePositionLabels.map((position) => (
               <span className="position-chip" key={position}>
                 {position}
               </span>
@@ -1133,6 +1985,10 @@ function RecruitDetailPanel({
   error: string;
   alliance: "" | AllianceKey;
 }) {
+  if ((row.source ?? "official") === "nga") {
+    return <NgaDetailPanel row={row} meta={meta} />;
+  }
+
   const requirement = textOrFallback(
     typeof row.recruit_require_mask === "string" ? row.recruit_require_mask : row.recruit_require
   );
@@ -1146,7 +2002,7 @@ function RecruitDetailPanel({
       {isLoading && (
         <div className="detail-loading">
           <Loader2 size={15} className="spin" />
-          正在读取官方详情
+          正在读取石之家详情
         </div>
       )}
       {error && <Notice tone="error" text={`详情加载失败：${error}`} />}
@@ -1170,6 +2026,243 @@ function RecruitDetailPanel({
         </section>
       </div>
     </div>
+  );
+}
+
+function NgaDetailPanel({ row, meta }: { row: RecruitRow | RecruitDetail; meta: MetaPayload | null }) {
+  const fields = row.parsedFields ?? {};
+  const kind = row.sourceMeta?.recruitKind;
+  const openPositions = kind === "seeking" ? fields.playerAvailablePositions ?? [] : fields.positions ?? [];
+  const jobs = kind === "seeking" ? fields.playerAvailableJobs ?? [] : fields.jobs ?? [];
+  const detailItems = buildNgaTeamDetailItems(row);
+  const requirementItems = buildNgaRequirementItems(row, meta);
+  const strategyText = fields.strategy || row.strategy || "未识别";
+  const referenceText = buildNgaReferenceText(row);
+  const contactText = fields.contactDetails || "";
+
+  return (
+    <div className="expanded-detail nga-expanded-detail nga-readable-detail">
+      <section className="expanded-section composition-section">
+        <h3>{kind === "seeking" ? "玩家可用位置" : "当前队伍构成"}</h3>
+        <NgaPositionMatrix row={row} meta={meta} />
+      </section>
+      <div className="detail-text-stack">
+        <section className="expanded-section">
+          <h3>队伍详情</h3>
+          <div className="nga-summary-grid">
+            {detailItems.map((item) => (
+              <div className="nga-summary-item" key={item.label}>
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className="expanded-section">
+          <h3>{kind === "seeking" ? "求职信息" : "招募要求"}</h3>
+          {requirementItems.length ? (
+            <div className="nga-readable-list">
+              {requirementItems.map((item) => (
+                <span
+                  className={[item.tone ? `soft-tag ${item.tone}` : "soft-tag", item.jobs?.length ? "nga-job-requirement" : ""]
+                    .filter(Boolean)
+                    .join(" ")}
+                  key={item.text}
+                >
+                  {item.jobs?.length ? (
+                    <>
+                      <span className="nga-job-requirement-label">{item.label}</span>
+                      <NgaInlineJobList jobs={item.jobs} relation={item.relation} />
+                    </>
+                  ) : (
+                    item.text
+                  )}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p>{openPositions.length || jobs.length ? "暂无额外要求。" : "暂未识别到明确要求；低置信黑话不会被强行归类。"}</p>
+          )}
+        </section>
+        {contactText ? (
+          <section className="expanded-section nga-contact-section">
+            <h3>联系方式</h3>
+            <p className="nga-contact-text">{contactText}</p>
+          </section>
+        ) : null}
+        <section className="expanded-section">
+          <h3>攻略说明</h3>
+          <p>{strategyText}</p>
+        </section>
+        {referenceText ? (
+          <section className="expanded-section">
+            <h3>原文参考</h3>
+            <p className="nga-reference-text">{referenceText}</p>
+          </section>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function NgaPositionMatrix({ row, meta }: { row: RecruitRow | RecruitDetail; meta: MetaPayload | null }) {
+  const fields = row.parsedFields ?? {};
+  const kind = row.sourceMeta?.recruitKind;
+  const openPositions = new Set(kind === "seeking" ? fields.playerAvailablePositions ?? [] : fields.positions ?? []);
+  const excludedPositions = new Set(fields.excludedPositions ?? []);
+  const rosterSlots = fields.rosterSlots ?? {};
+  const flexGroups = getNgaPositionFlexGroups(fields, kind);
+  const skipPositions = new Set<PositionKey>(flexGroups.flatMap((group) => group.slice(1)) as PositionKey[]);
+  const groupByFirst = new Map<PositionKey, PositionKey[]>(
+    flexGroups
+      .filter((group): group is PositionKey[] => group.length > 1)
+      .map((group) => [group[0] as PositionKey, group])
+  );
+
+  return (
+    <div className="position-matrix nga-position-matrix">
+      {FULL_PARTY_POSITIONS.map((position) => {
+        if (skipPositions.has(position as PositionKey)) {
+          return null;
+        }
+        const flexGroup = groupByFirst.get(position as PositionKey);
+        if (flexGroup) {
+          const flexLabel = flexGroup.join("/");
+          const flexJobs = uniqueDisplayItems(flexGroup.flatMap((slot) => rosterSlots[slot] ?? []));
+          const flexJobEntries = flexJobs.map((name) => getJobEntryByName(name, meta));
+          const isOpen = flexGroup.some((slot) => openPositions.has(slot));
+          const label = flexJobs.length
+            ? isOpen
+              ? `${flexLabel} ${flexJobs.join("/")}；可补其中一位`
+              : `${flexLabel} ${flexJobs.join("/")}`
+            : isOpen
+              ? "招募中"
+              : "有人可切位置";
+          const state = flexJobs.length && isOpen ? "mixed" : flexJobs.length ? "filled" : isOpen ? "open" : "unknown";
+          return (
+            <div className={`position-cell nga-position-cell ${state} flex-slot`} key={flexLabel}>
+              <span className="slot-key">{flexLabel}</span>
+              {flexJobEntries.length ? <NgaRosterJobStack jobs={flexJobEntries} /> : <span className="slot-state-dot" />}
+              <strong title={label}>{flexJobs.length && isOpen ? "有人可切 + 招募" : label}</strong>
+            </div>
+          );
+        }
+        const rosterJobs = rosterSlots[position];
+        const rosterJobEntries = (rosterJobs ?? []).map((name) => getJobEntryByName(name, meta));
+        const isOpen = openPositions.has(position);
+        const isExcluded = excludedPositions.has(position);
+        const state = rosterJobs?.length && isOpen ? "mixed" : isOpen ? "open" : rosterJobs?.length ? "filled" : isExcluded ? "blocked" : "unknown";
+        const label =
+          kind === "seeking"
+            ? isOpen
+              ? "可用"
+              : "未标注"
+            : isOpen && rosterJobs?.length
+              ? "有人可切 + 招募"
+              : isOpen
+              ? "招募中"
+              : rosterJobs?.length
+                ? rosterJobs.join("/")
+                : isExcluded
+                  ? "排除"
+                  : "未识别";
+        return (
+          <div className={`position-cell nga-position-cell ${state}`} key={position}>
+            <span className="slot-key">{position}</span>
+            {rosterJobEntries.length ? <NgaRosterJobStack jobs={rosterJobEntries} /> : <span className="slot-state-dot" />}
+            <strong title={label}>{label}</strong>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function getNgaPositionFlexGroups(fields: Partial<NgaParsedFields>, kind: string | undefined): PositionKey[][] {
+  const rosterGroups = (fields.rosterFlexGroups ?? []).filter((group) => group.length > 1) as PositionKey[][];
+  if (kind === "seeking") {
+    return rosterGroups;
+  }
+
+  const openPositions = new Set(fields.positions ?? []);
+  const rosterSlots = fields.rosterSlots ?? {};
+  const rosterGroupPositions = new Set(rosterGroups.flat());
+  const vacancyGroups = ((fields.vacancyFlexGroups ?? []) as PositionKey[][]).filter(
+    (group) =>
+      group.length > 1 &&
+      group.every((position) => openPositions.has(position)) &&
+      !group.some((position) => rosterGroupPositions.has(position)) &&
+      group.every((position) => !(rosterSlots[position]?.length))
+  );
+  return [...rosterGroups, ...vacancyGroups];
+}
+
+function NgaRosterJobStack({ jobs }: { jobs: JobConfigEntry[] }) {
+  const title = jobs.map((job) => job.value).join(" / ");
+  return (
+    <span
+      className={jobs.length > 1 ? "nga-job-stack multi" : "nga-job-stack"}
+      tabIndex={jobs.length > 1 ? 0 : -1}
+      title={title}
+      aria-label={title}
+    >
+      {jobs.map((job, index) => (
+        <span
+          className="nga-job-card"
+          key={`${job.id}-${index}`}
+          style={
+            {
+              "--compact-x": `${index * 9}px`,
+              "--expanded-x": `${index * 30}px`,
+              zIndex: jobs.length - index
+            } as CSSProperties
+          }
+        >
+          {job.job_pic_url ? <img src={job.job_pic_url} alt="" /> : <span>{job.value.slice(0, 1)}</span>}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function NgaInlineJobList({ jobs, relation }: { jobs: JobConfigEntry[]; relation?: "or" }) {
+  return (
+    <span className="nga-inline-job-list">
+      {jobs.map((job, index) => (
+        <span className="nga-inline-job-piece" key={`${job.id}-${index}`}>
+          {relation === "or" && index > 0 ? <span className="nga-job-or">或</span> : null}
+          <span className="nga-inline-job" title={job.value}>
+            {job.job_pic_url ? <img src={job.job_pic_url} alt="" /> : null}
+            <span>{job.value}</span>
+          </span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+type NgaDisplayJobGroup = {
+  key: string;
+  label?: string;
+  jobs: JobConfigEntry[];
+  relation?: "or";
+};
+
+function NgaJobPillGroup({ group }: { group: NgaDisplayJobGroup }) {
+  const title = `${group.label ? `${group.label}：` : ""}${group.jobs.map((job) => job.value).join(group.relation === "or" ? " 或 " : "、")}`;
+  return (
+    <span className={group.relation === "or" ? "job-pill-group or-group" : "job-pill-group"} title={title}>
+      {group.label ? <span className="job-pill-group-label">{group.label}</span> : null}
+      {group.jobs.map((job, index) => (
+        <span className="job-pill-piece" key={`${job.id}-${index}`}>
+          {group.relation === "or" && index > 0 ? <span className="job-pill-or">或</span> : null}
+          <span className="job-pill compact" title={job.value}>
+            {job.job_pic_url ? <img src={job.job_pic_url} alt="" /> : null}
+            {job.value}
+          </span>
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -1240,6 +2333,447 @@ function textOrFallback(value: unknown): string {
     return value.trim();
   }
   return "未填写";
+}
+
+function formatRecruitSourceLabel(source: RecruitSource): string {
+  return source === "nga" ? "NGA" : "石之家";
+}
+
+function formatRecruitTimeForDisplay(value: string): string {
+  if (isStructuredRecruitTime(value)) {
+    return value;
+  }
+  return formatRecruitTimeDisplay(value) || value || "未识别";
+}
+
+function isStructuredRecruitTime(value: string): boolean {
+  return /(?:首周|次周开始|后续|之后|第二周|第一周).*\d{1,2}:\d{2}/.test(value);
+}
+
+function getRecruitTimeHint(raw: string, display: string): string | undefined {
+  if (!raw || raw === display || display === "未识别") {
+    return undefined;
+  }
+  return `原文：${raw}`;
+}
+
+function getRecruitDailyDuration(row: RecruitRow | RecruitDetail): string {
+  const fields = row.parsedFields ?? {};
+  if (fields.dailyDuration) {
+    return fields.dailyDuration;
+  }
+  if ((row.source ?? "official") === "nga" && fields.time) {
+    const inferredFromParsedTime = formatRecruitDailyDuration(fields.time, { inferFromRanges: true });
+    if (inferredFromParsedTime) {
+      return inferredFromParsedTime;
+    }
+  }
+  const sourceText = (row.source ?? "official") === "nga" ? `${row.sourceTitle ?? ""}\n${row.rawText ?? ""}` : row.fb_time;
+  return formatRecruitDailyDuration(sourceText, { inferFromRanges: true });
+}
+
+function getVisibleNgaTags(row: RecruitRow): string[] {
+  const tags = [...(row.parseTags ?? [])];
+  if (row.parseWarnings?.some((warning) => /低置信|人工确认/.test(warning))) {
+    tags.push("需看原文确认");
+  }
+  const visible = uniqueDisplayItems(tags).filter((tag) => !/低置信未识别/.test(tag));
+  const important = visible.filter(isImportantNgaTag);
+  const ordinary = visible.filter((tag) => !isImportantNgaTag(tag));
+  return [...important, ...ordinary].slice(0, 7);
+}
+
+function isImportantNgaTag(tag: string): boolean {
+  return Boolean(getNgaTagClass(tag)) || /需看原文确认|已关闭|疑似噪音|低置信/.test(tag);
+}
+
+function buildNgaTeamDetailItems(row: RecruitRow | RecruitDetail): Array<{ label: string; value: string }> {
+  const fields = row.parsedFields ?? {};
+  const timeValue = formatNgaTimeDetail(fields.time || row.fb_time || "", fields.timeSupplement);
+  const locationPreference = fields.server || "";
+  const items = [
+    { label: "来源", value: `${formatNgaRecruitKind(row.sourceMeta?.recruitKind)} · NGA` },
+    { label: "副本", value: fields.dungeon || row.fb_name || "未识别" },
+    { label: "进度", value: fields.progress || row.progress || fields.clearGoal || "未识别" },
+    { label: "目标", value: fields.clearGoal || "未识别" },
+    { label: "时间", value: timeValue },
+    { label: "强度", value: getRecruitDailyDuration(row) || "未识别" },
+    locationPreference ? { label: "区服偏好", value: locationPreference } : null,
+    { label: "队伍", value: [fields.teamType, fields.rosterSize].filter(Boolean).join(" · ") || row.group_name || "未识别" }
+  ];
+  return items.filter((item): item is { label: string; value: string } => Boolean(item));
+}
+
+function formatNgaTimeDetail(time: string, supplement: string | undefined): string {
+  const regular = formatRecruitTimeForDisplay(time);
+  return [regular, supplement].filter(Boolean).join("；") || "未识别";
+}
+
+type NgaRequirementItem = {
+  text: string;
+  tone?: string;
+  label?: string;
+  jobs?: JobConfigEntry[];
+  relation?: "or";
+};
+
+function buildNgaRequirementItems(row: RecruitRow | RecruitDetail, meta: MetaPayload | null): NgaRequirementItem[] {
+  const fields = row.parsedFields ?? {};
+  const items: NgaRequirementItem[] = [];
+  const vacancyLabel = row.sourceMeta?.recruitKind === "seeking" ? "可用位置" : "空缺位置";
+  const jobLabel = row.sourceMeta?.recruitKind === "seeking" ? "可用职业" : "需求职业";
+  for (const value of formatNgaPositionRequirementLabels(fields, row.sourceMeta?.recruitKind)) {
+    items.push({ text: `${vacancyLabel}：${value}` });
+  }
+  const vacancySlotJobNames = new Set<string>();
+  if (row.sourceMeta?.recruitKind !== "seeking") {
+    for (const position of FULL_PARTY_POSITIONS) {
+      const slotJobs = fields.vacancySlots?.[position as PositionKey] ?? [];
+      if (!slotJobs.length) {
+        continue;
+      }
+      for (const job of slotJobs) {
+        vacancySlotJobNames.add(job);
+      }
+      items.push({
+        text: `${position} 倾向：${slotJobs.join(" / ")}`,
+        label: `${position} 倾向：`,
+        jobs: slotJobs.map((name) => getJobEntryByName(name, meta)),
+        relation: "or"
+      });
+    }
+  }
+  const jobNames = uniqueDisplayItems([...(fields.jobs ?? []), ...(fields.playerAvailableJobs ?? [])]).filter(
+    (name) => !vacancySlotJobNames.has(name)
+  );
+  if (jobNames.length) {
+    items.push({
+      text: `${jobLabel}：${jobNames.join(" / ")}`,
+      label: `${jobLabel}：`,
+      jobs: jobNames.map((name) => getJobEntryByName(name, meta)),
+      relation: jobNames.length > 1 ? "or" : undefined
+    });
+  }
+  for (const value of splitNgaList(fields.requirements)) {
+    items.push({ text: value, tone: getNgaTagClass(value) });
+  }
+  for (const value of fields.excludedPositions ?? []) {
+    items.push({ text: `排除位置：${value}`, tone: "warning-tag" });
+  }
+  for (const value of fields.excludedJobs ?? []) {
+    items.push({ text: `排除职业：${value}`, tone: "warning-tag" });
+  }
+  return dedupeNgaRequirementItems(items);
+}
+
+function formatNgaPositionRequirementLabels(fields: Partial<NgaParsedFields>, kind: string | undefined): string[] {
+  const positions = kind === "seeking" ? fields.playerAvailablePositions ?? [] : fields.positions ?? [];
+  const labels: string[] = [];
+  const skipped = new Set<string>();
+  if (kind !== "seeking") {
+    for (const group of fields.vacancyFlexGroups ?? []) {
+      const relevant = group.filter((position) => positions.includes(position));
+      if (relevant.length < 2) {
+        continue;
+      }
+      labels.push(relevant.join("/"));
+      relevant.forEach((position) => skipped.add(position));
+    }
+  }
+  for (const position of positions) {
+    if (!skipped.has(position)) {
+      labels.push(position);
+    }
+  }
+  return uniqueDisplayItems(labels);
+}
+
+function dedupeNgaRequirementItems(items: NgaRequirementItem[]): NgaRequirementItem[] {
+  const seen = new Set<string>();
+  const result: NgaRequirementItem[] = [];
+  for (const item of items) {
+    const key = `${item.text}\u0000${item.tone ?? ""}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
+function splitNgaList(value: string | undefined): string[] {
+  return value ? value.split("、").map((item) => item.trim()).filter(Boolean) : [];
+}
+
+function buildNgaReferenceText(row: RecruitRow | RecruitDetail): string {
+  const fields = row.parsedFields ?? {};
+  const needsReference =
+    Boolean(fields.positions?.length || fields.playerAvailablePositions?.length) ||
+    Boolean(fields.jobs?.length || fields.playerAvailableJobs?.length) ||
+    Boolean(fields.requirements || fields.rosterSlots || fields.vacancySlots || fields.contactDetails) ||
+    Boolean(row.parseWarnings?.length) ||
+    row.sourceMeta?.recruitKind === "unknown";
+  if (!needsReference) {
+    return "";
+  }
+  const raw = row.rawText || row.sourceTitle || "";
+  if (!raw.trim()) {
+    return "未采集到正文；请在 NGA 帖子详情页采集以获得正文样本。";
+  }
+  return raw
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function uniqueDisplayItems(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function markOfficialRow(row: RecruitRow): RecruitRow {
+  return {
+    ...row,
+    source: row.source ?? "official",
+    sourceMeta: row.sourceMeta ?? {
+      platform: "risingstones",
+      importedAt: row.begin_time
+    }
+  };
+}
+
+function ngaSampleToRecruitRow(sample: NgaSample, index: number): RecruitRow {
+  const signal = classifyNgaSample(sample);
+  const fields = signal.parsedFields;
+  return {
+    id: -1_000_000 - index,
+    uuid: `nga-${sample.topicId || index}`,
+    source: "nga",
+    sourceUrl: sample.url,
+    sourceTitle: sample.title,
+    sourceAuthor: sample.author,
+    sourcePublishedAt: sample.publishedAt,
+    rawText: sample.body || sample.title,
+    parsedFields: fields,
+    parseConfidence: signal.parseConfidence,
+    parseEvidence: signal.evidence,
+    parseTags: signal.tags,
+    parseWarnings: signal.warnings,
+    sourceMeta: {
+      platform: "nga",
+      forumId: sample.forumId,
+      topicId: sample.topicId,
+      importedAt: new Date().toISOString(),
+      isClosed: signal.isClosed,
+      isNoise: signal.isNoise,
+      recruitKind: signal.recruitKind,
+      bodyCollected: Boolean(sample.body)
+    },
+    character_name: sample.author || "NGA 用户",
+    area_name: fields.server || "NGA",
+    group_name: fields.teamType || sample.author || "未知作者",
+    fb_type: "NGA",
+    fb_name: sample.title || fields.dungeon || "NGA 未识别招募",
+    fb_time: fields.time || "",
+    team_composition: "满编小队",
+    progress: fields.progress || fields.clearGoal || "",
+    strategy: fields.strategy || "",
+    team_position: null,
+    need_job: []
+  };
+}
+
+function getNgaDisplayJobEntries(row: RecruitRow, meta: MetaPayload | null): JobConfigEntry[] {
+  if ((row.source ?? "official") !== "nga") {
+    return [];
+  }
+  const fields = row.parsedFields ?? {};
+  const vacancySlotJobs = uniqueDisplayItems(Object.values(fields.vacancySlots ?? {}).flat());
+  const names =
+    row.sourceMeta?.recruitKind === "seeking"
+      ? fields.playerAvailableJobs?.length
+        ? fields.playerAvailableJobs
+        : fields.jobs ?? []
+      : fields.jobs?.length
+        ? fields.jobs
+        : vacancySlotJobs.length
+          ? vacancySlotJobs
+          : fields.playerAvailableJobs ?? [];
+
+  return names.map((name) => getJobEntryByName(name, meta));
+}
+
+function getNgaDisplayJobGroups(row: RecruitRow, meta: MetaPayload | null): NgaDisplayJobGroup[] {
+  if ((row.source ?? "official") !== "nga") {
+    return [];
+  }
+  const fields = row.parsedFields ?? {};
+  const kind = row.sourceMeta?.recruitKind;
+  const groups: NgaDisplayJobGroup[] = [];
+  const consumed = new Set<string>();
+  if (kind !== "seeking") {
+    for (const position of FULL_PARTY_POSITIONS) {
+      const slotJobs = uniqueDisplayItems(fields.vacancySlots?.[position as PositionKey] ?? []);
+      if (!slotJobs.length) {
+        continue;
+      }
+      slotJobs.forEach((job) => consumed.add(job));
+      groups.push({
+        key: `slot-${position}`,
+        label: position,
+        jobs: slotJobs.map((name) => getJobEntryByName(name, meta)),
+        relation: slotJobs.length > 1 ? "or" : undefined
+      });
+    }
+  }
+
+  const names =
+    kind === "seeking"
+      ? uniqueDisplayItems(fields.playerAvailableJobs?.length ? fields.playerAvailableJobs : fields.jobs ?? [])
+      : uniqueDisplayItems(fields.jobs ?? []).filter((name) => !consumed.has(name));
+  if (names.length) {
+    const positionLabels = formatNgaPositionRequirementLabels(fields, kind);
+    const singleOpenSlot = kind !== "seeking" && positionLabels.length === 1;
+    groups.push({
+      key: "jobs",
+      label: singleOpenSlot ? positionLabels[0] : undefined,
+      jobs: names.map((name) => getJobEntryByName(name, meta)),
+      relation: names.length > 1 ? "or" : undefined
+    });
+  }
+
+  return groups;
+}
+
+function getJobEntryByName(name: string, meta: MetaPayload | null): JobConfigEntry {
+  const configured = meta?.jobMeta.jobs.find((job) => job.value === name);
+  if (configured) {
+    return configured;
+  }
+  const roleCategoryNames = GENERIC_NGA_JOB_ROLE_CATEGORY[name] ?? [];
+  const roleCategory = roleCategoryNames
+    .map((categoryName) => meta?.jobMeta.jobs.find((job) => job.value === categoryName))
+    .find((job) => job);
+  if (roleCategory) {
+    return {
+      ...roleCategory,
+      id: `nga-${name}`,
+      value: name
+    };
+  }
+  return { id: `nga-${name}`, value: name, job_type: "NGA" };
+}
+
+const GENERIC_NGA_JOB_ROLE_CATEGORY: Record<string, string[]> = {
+  任意坦克: ["防护职业"],
+  任意治疗: ["治疗职业"],
+  任意近战: ["近战职业"],
+  任意远敏: ["远程物理", "远程物理职业"],
+  任意法系: ["远程魔法", "远程魔法职业"]
+};
+
+function matchesNgaRecruitView(row: RecruitRow, mode: NgaRecruitViewMode): boolean {
+  const kind = row.sourceMeta?.recruitKind;
+  if (mode === "all") {
+    return true;
+  }
+  if (mode === "seeking") {
+    return kind === "seeking";
+  }
+  return kind !== "seeking";
+}
+
+function formatNgaRecruitKind(kind: RecruitSourceMeta["recruitKind"] | undefined): string {
+  switch (kind) {
+    case "recruit":
+      return "队伍招人";
+    case "seeking":
+      return "玩家求职";
+    case "closed":
+      return "已关闭/已招满";
+    case "noise":
+      return "疑似噪音";
+    case "unknown":
+      return "低置信未识别";
+    default:
+      return "未识别";
+  }
+}
+
+function formatNgaFieldLabel(key: string): string {
+  const labels: Record<string, string> = {
+    dungeon: "副本",
+    progress: "进度",
+    strategy: "攻略",
+    time: "时间",
+    timeSupplement: "补充时间",
+    dailyDuration: "每日强度",
+    jobs: "招募职业",
+    positions: "招募位置",
+    vacancySlots: "位置职业倾向",
+    vacancyFlexGroups: "可替代空缺位置",
+    rosterSlots: "当前阵容",
+    rosterFlexGroups: "可切位置",
+    excludedJobs: "排除职业",
+    excludedPositions: "排除位置",
+    playerAvailableJobs: "求职职业",
+    playerAvailablePositions: "求职位置",
+    server: "大区",
+    contact: "联系方式",
+    teamType: "队伍类型",
+    clearGoal: "目标",
+    rosterSize: "队伍人数",
+    requirements: "要求",
+    recruitKind: "分流",
+    tag: "标签",
+    warning: "警告"
+  };
+  return labels[key] ?? key;
+}
+
+function getNgaTagClass(tag: string): string {
+  if (/纯净队|禁第三方|拒绝装甲车|代打记录|拒绝绘图轮椅依赖|拒绝插件依赖|拒绝极端插件立场|反作弊/.test(tag)) {
+    return "clean-tag";
+  }
+  if (/全妹队|女生限定|女生优先/.test(tag)) {
+    return "social-tag";
+  }
+  if (/插件态度中性|插件生态均可|ACT\/logs 记录复盘/.test(tag)) {
+    return "neutral-tag";
+  }
+  if (/第三方工具|ACT 时间轴|TTS 辅助|科技|装甲车|代打|工作室|已关闭/.test(tag)) {
+    return "risk-tag";
+  }
+  return "";
+}
+
+function formatParsedValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.join("、");
+  }
+  return String(value);
+}
+
+function formatCandidates(candidates: Array<{ value: string; count: number }>): string {
+  if (candidates.length === 0) {
+    return "暂无";
+  }
+  return candidates
+    .slice(0, 4)
+    .map((candidate) => `${candidate.value}(${candidate.count})`)
+    .join("、");
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(
+    2,
+    "0"
+  )} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function Detail({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -1358,4 +2892,8 @@ function selectUpdateAsset(assets: UpdateAsset[], version: AppVersionPayload | n
   }
 
   return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

@@ -934,7 +934,7 @@ function normalizeJobMeta(jobConfig: JobConfigMap) {
   }
 
   for (const category of categories) {
-    const children = asArray(jobConfig[category.value]);
+    const children = asArray(jobConfig[resolveJobGroupKey(category.value)]);
     childIdsByCategoryId[category.id] = children.map((job) => job.id);
   }
 
@@ -955,6 +955,16 @@ function asArray(value: JobConfigEntry[] | JobConfigEntry | undefined): JobConfi
     return [];
   }
   return Array.isArray(value) ? value : [value];
+}
+
+function resolveJobGroupKey(group: string): string {
+  if (group === "远程物理") {
+    return "远程物理职业";
+  }
+  if (group === "远程魔法") {
+    return "远程魔法职业";
+  }
+  return group;
 }
 
 function requestAbortController(req: express.Request): AbortController {

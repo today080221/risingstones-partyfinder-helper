@@ -1,6 +1,11 @@
 export type PositionKey = "MT" | "ST" | "H1" | "H2" | "D1" | "D2" | "D3" | "D4";
 export type LightPartyPositionKey = "T" | "H" | "D1" | "D2";
 export type AllianceKey = "A" | "B" | "C";
+export type RecruitSource = "official" | "nga";
+export type NgaLoginStatus = "unknown" | "not_logged_in" | "logged_in";
+export type NgaFilterMode = "strict" | "balanced" | "loose" | "unrecognized";
+export type NgaRecruitViewMode = "teams" | "seeking" | "all";
+export type NgaCollectionStatus = "idle" | "opening" | "collecting" | "cancelled" | "completed" | "error";
 
 export interface OfficialApiResponse<T> {
   code?: number;
@@ -62,6 +67,18 @@ export interface MetaPayload {
 export interface RecruitRow {
   id: number;
   uuid: string;
+  source?: RecruitSource;
+  sourceUrl?: string;
+  sourceTitle?: string;
+  sourceAuthor?: string;
+  sourcePublishedAt?: string;
+  rawText?: string;
+  parsedFields?: NgaParsedFields;
+  parseConfidence?: Partial<Record<keyof NgaParsedFields, "high" | "medium" | "low" | "unknown">>;
+  parseEvidence?: NgaParseEvidence[];
+  parseTags?: string[];
+  parseWarnings?: string[];
+  sourceMeta?: RecruitSourceMeta;
   character_name: string;
   area_name: string;
   group_name: string;
@@ -127,6 +144,148 @@ export interface RecruitFetchPayload {
   warnings: string[];
 }
 
+export interface RecruitSourceMeta {
+  platform: "risingstones" | "nga";
+  forumId?: string;
+  topicId?: string;
+  postId?: string;
+  importedAt?: string;
+  isClosed?: boolean;
+  isNoise?: boolean;
+  recruitKind?: "recruit" | "seeking" | "closed" | "noise" | "unknown";
+  bodyCollected?: boolean;
+}
+
+export type NgaParseConfidence = "high" | "medium" | "low" | "unknown";
+
+export interface NgaParseEvidence {
+  field: keyof NgaParsedFields | "recruitKind" | "tag" | "warning";
+  value: string;
+  snippet: string;
+  confidence: NgaParseConfidence;
+}
+
+export interface NgaParsedFields {
+  dungeon?: string;
+  progress?: string;
+  strategy?: string;
+  time?: string;
+  timeSupplement?: string;
+  dailyDuration?: string;
+  rosterSlots?: Partial<Record<PositionKey, string[]>>;
+  rosterFlexGroups?: PositionKey[][];
+  vacancySlots?: Partial<Record<PositionKey, string[]>>;
+  vacancyFlexGroups?: PositionKey[][];
+  jobs?: string[];
+  positions?: string[];
+  excludedJobs?: string[];
+  excludedPositions?: string[];
+  playerAvailableJobs?: string[];
+  playerAvailablePositions?: string[];
+  server?: string;
+  contact?: string;
+  contactDetails?: string;
+  teamType?: string;
+  clearGoal?: string;
+  rosterSize?: string;
+  requirements?: string;
+}
+
+export interface NgaSample {
+  title: string;
+  body: string;
+  url: string;
+  author: string;
+  publishedAt: string;
+  forumId: string;
+  topicId: string;
+}
+
+export interface NgaSampleCandidate {
+  value: string;
+  count: number;
+  examples: string[];
+}
+
+export interface NgaSampleAnalysisReport {
+  sampleCount: number;
+  generatedAt: string;
+  fieldPresence: Record<keyof NgaSample, { present: number; missing: number; presentRate: number; missingRate: number }>;
+  titleStructures: NgaSampleCandidate[];
+  bodyStructures: NgaSampleCandidate[];
+  dungeonAliases: NgaSampleCandidate[];
+  progressExpressions: NgaSampleCandidate[];
+  jobPositionExpressions: NgaSampleCandidate[];
+  timeExpressions: NgaSampleCandidate[];
+  unknownExpressions: NgaSampleCandidate[];
+  confirmationQuestions: string[];
+  warnings: string[];
+}
+
+export interface NgaCollectionSettings {
+  keepLogin: boolean;
+  startUrl: string;
+  requestIntervalMs: number;
+  maxItems: number;
+  filterMode: NgaFilterMode;
+  includeDetails: boolean;
+}
+
+export interface NgaCollectionProgress {
+  status: NgaCollectionStatus;
+  currentUrl: string;
+  collected: number;
+  maxItems: number;
+  message: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface NgaSessionStatusPayload {
+  available: boolean;
+  loginStatus: NgaLoginStatus;
+  keepLogin: boolean;
+  dataLocation: string;
+  message: string;
+  autoCollectOnStart?: boolean;
+}
+
+export interface NgaVisiblePageStatusPayload {
+  opened: boolean;
+  allowed: boolean;
+  currentUrl: string;
+  message: string;
+}
+
+export interface NgaOpenSessionPayload extends NgaSessionStatusPayload {
+  openedUrl: string;
+}
+
+export interface NgaClearSessionPayload {
+  message: string;
+  dataLocation: string;
+  cleared: boolean;
+}
+
+export interface NgaCollectPayload {
+  samples: NgaSample[];
+  progress: NgaCollectionProgress;
+  warnings: string[];
+  fetchedAt: string;
+}
+
+export interface NgaDetailCollectPayload extends NgaCollectPayload {
+  updated: number;
+}
+
+export interface NgaSampleStorePayload {
+  samples: NgaSample[];
+  count: number;
+  dataLocation: string;
+  message: string;
+  savedAt?: string;
+}
+
 export type UpdateProvider = "github" | "gitee";
 
 export interface AppVersionPayload {
@@ -180,6 +339,7 @@ export interface KeywordFilter {
 }
 
 export interface LocalFilterState {
+  ngaRecruitView: NgaRecruitViewMode;
   progressText: string;
   strategyText: string;
   timeText: string;

@@ -11,7 +11,7 @@ export interface JobPickerGroup {
 
 const JOB_GROUP_ORDER = ["职能分类", "防护职业", "治疗职业", "近战职业", "远程物理职业", "远程魔法职业"];
 const JOB_GROUP_LABELS: Record<string, string> = {
-  职能分类: "智能分类",
+  职能分类: "职能分类",
   防护职业: "防护职业（T）",
   治疗职业: "治疗职业（奶）",
   近战职业: "近战职业（近战）",
@@ -35,7 +35,7 @@ export function buildJobMeta(jobConfig: Record<string, JobConfigEntry[] | JobCon
   }
 
   for (const category of categories) {
-    childIdsByCategoryId[category.id] = asArray(jobConfig[category.value]).map((job) => job.id);
+    childIdsByCategoryId[category.id] = asArray(jobConfig[resolveJobGroupKey(category.value)]).map((job) => job.id);
   }
 
   const attack = categories.find((category) => category.value === "进攻职业");
@@ -64,14 +64,23 @@ export function jobCanEnter(
   const acceptedCandidates = needJobIds.includes("32")
     ? new Set(getAllConcreteJobIds(jobMeta))
     : expandConcreteJobIds(needJobIds, jobMeta);
-  const occupiedJobIds =
-    options.noDuplicateJobs && options.row ? getOccupiedJobIds(options.row) : new Set<string>();
+  const ngaAcceptedJobs = options.row ? getNgaAcceptedJobNames(options.row) : new Set<string>();
+  const ngaExcludedJobs = options.row ? new Set(options.row.parsedFields?.excludedJobs ?? []) : new Set<string>();
+  const occupiedJobIds = options.noDuplicateJobs && options.row ? getOccupiedJobIds(options.row, jobMeta) : new Set<string>();
 
   return [...selectedCandidates].some((id) => {
     if (occupiedJobIds.has(id)) {
       return false;
     }
-    return acceptedCandidates.has(id) || jobMatchesOpenPosition(id, options.row, jobMeta, options.alliance ?? "");
+    const jobName = jobMeta.jobsById[id]?.value;
+    if (jobName && ngaExcludedJobs.has(jobName)) {
+      return false;
+    }
+    return (
+      acceptedCandidates.has(id) ||
+      (Boolean(jobName) && ngaAcceptedJobs.has(jobName)) ||
+      jobMatchesOpenPosition(id, options.row, jobMeta, options.alliance ?? "")
+    );
   });
 }
 
@@ -123,7 +132,7 @@ export function expandConcreteJobIds(ids: string[], jobMeta: NormalizedJobMeta):
   return expanded;
 }
 
-export function getOccupiedJobIds(row: RecruitRow): Set<string> {
+export function getOccupiedJobIds(row: RecruitRow, jobMeta?: NormalizedJobMeta): Set<string> {
   const occupied = new Set<string>();
   const add = (value: unknown) => {
     const numeric = Number(value);
@@ -147,10 +156,33 @@ export function getOccupiedJobIds(row: RecruitRow): Set<string> {
     }
   }
 
+  if (row.source === "nga" && jobMeta) {
+    for (const jobs of Object.values(row.parsedFields?.rosterSlots ?? {})) {
+      for (const jobName of jobs ?? []) {
+        const jobId = findJobIdByName(jobName, jobMeta);
+        if (jobId) {
+          occupied.add(jobId);
+        }
+      }
+    }
+  }
+
   return occupied;
 }
 
+function findJobIdByName(name: string, jobMeta: NormalizedJobMeta): string | null {
+  return jobMeta.jobs.find((job) => job.value === name)?.id ?? null;
+}
+
 export function getOpenPositions(row: RecruitRow, alliance: "" | AllianceKey = ""): string[] {
+  if (row.source === "nga") {
+    const parsedPositions =
+      row.sourceMeta?.recruitKind === "seeking"
+        ? row.parsedFields?.playerAvailablePositions
+        : row.parsedFields?.positions;
+    return parsedPositions?.length ? parsedPositions : [];
+  }
+
   if (row.team_composition === "团队" && row.team_position) {
     const alliances = alliance ? [alliance] : (["A", "B", "C"] as AllianceKey[]);
     const positions: string[] = [];
@@ -244,6 +276,15 @@ function getJobRole(job: JobConfigEntry | undefined): "tank" | "healer" | "dps" 
   return "unknown";
 }
 
+function getNgaAcceptedJobNames(row: RecruitRow): Set<string> {
+  if (row.source !== "nga") {
+    return new Set();
+  }
+  const jobs =
+    row.sourceMeta?.recruitKind === "seeking" ? row.parsedFields?.playerAvailableJobs : row.parsedFields?.jobs;
+  return new Set(jobs ?? []);
+}
+
 function jobGroupRank(group: string): number {
   const index = JOB_GROUP_ORDER.indexOf(group);
   return index >= 0 ? index : JOB_GROUP_ORDER.length;
@@ -254,6 +295,16 @@ function asArray(value: JobConfigEntry[] | JobConfigEntry | undefined): JobConfi
     return [];
   }
   return Array.isArray(value) ? value : [value];
+}
+
+function resolveJobGroupKey(group: string): string {
+  if (group === "远程物理") {
+    return "远程物理职业";
+  }
+  if (group === "远程魔法") {
+    return "远程魔法职业";
+  }
+  return group;
 }
 
 function getAllConcreteJobIds(jobMeta: NormalizedJobMeta): string[] {

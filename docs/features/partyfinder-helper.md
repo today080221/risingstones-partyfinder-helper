@@ -23,6 +23,7 @@
 - 结果卡片：
   - 默认保持紧凑展示。
   - 支持点击“详情”按需展开官方队伍详情文本、招募要求、攻略说明，并在独立区域展示当前队伍构成。
+  - 卡片支持来源徽标；官方与 NGA 来源统一使用“查看详情”，再按来源打开石之家详情页或 NGA 原帖链接。
 - 页面布局：
   - 左侧副本招募筛选器在桌面端固定为视口高度并独立滚动，滚动结果列表时筛选参数不离开视野。
   - 筛选器右上角支持折叠/展开；折叠状态持久化，不清空已选副本、官方条件或本地筛选参数。
@@ -73,11 +74,31 @@
 
 生产和便携包模式下，Express 同时提供前端静态文件；开发模式下仍由 Vite 提供前端并代理 `/api`。
 
+## Tauri NGA Commands
+
+NGA 本地聚合仅在 Tauri 桌面运行时可用，Node/浏览器开发模式会显示不可用提示，不尝试跨域读取或绕过登录限制。
+
+- `risingstones_nga_session_status`
+  返回 NGA WebView 登录窗口状态、保持登录选项、本机 WebView profile 路径和最近采集时间。
+
+- `risingstones_nga_open_session`
+  打开用户可见的 NGA WebView。用户自行登录；开启保持登录时使用本应用专属 WebView 数据目录，关闭时使用临时会话。
+
+- `risingstones_nga_clear_session`
+  关闭 NGA WebView，清理本应用 NGA WebView profile 下的浏览数据，不影响系统浏览器。
+
+- `risingstones_nga_collect_visible_samples`
+  在用户当前打开的 NGA WebView 页面中按请求间隔采集已渲染帖子样本；当前页入口限定为国服/日服招募板或 `read.php?tid=...` 帖子详情，并只返回 `title`、`body`、`url`、`author`、`publishedAt`、`forumId`、`topicId` 白名单字段。
+
+- `risingstones_nga_cancel_collect`
+  请求停止正在进行的 NGA 样本采集。
+
 ## Acceptance Criteria
 
 - 选择某个副本后，工具能拉完官方返回的全部分页，`fetched` 与 `count` 一致或展示明确警告。
 - 本地筛选不改写官方数据，只隐藏不符合条件的结果。
 - 每条结果提供官方详情链接。
+- NGA 样本卡片提供原帖链接、来源徽标、Parser v1 结构化字段、置信度、证据片段、tag、warning 和原文片段。
 - Tampermonkey 脚本只在官方域名运行，响应前必须人工确认。
 - 单测覆盖分页终止、官方参数、关键词、时间解析、职业映射、空位判断。
 
@@ -100,6 +121,7 @@
 - 更新检查：侧栏提供 GitHub/国内镜像下载节点、启动时检查开关和检查结果卡片；服务端代理发布源 API，避免前端跨域限制。
 - 更新状态灯：结果状态区下方展示绿/黄/红更新状态，刷新页面时自动检查当前下载节点的 Release 状态。
 - 一键更新：Node 便携包通过 `/api/update/install` 执行下载、覆盖和重启；Tauri 桌面版通过 `risingstones_install_update` 执行同等流程。
+- NGA 本地聚合基础版：Tauri 桌面版提供 NGA 登录 WebView、保持登录状态风险提示、清除本机登录状态、可见可取消有限频样本采集、逐帖详情正文采集、已存样本正文补齐、1500 条本地去重样本池、样本分析报告、Parser v1，以及官方/NGA 统一来源卡片。
 
 ## Verification Snapshot
 
@@ -119,3 +141,6 @@
 - v0.1.9 更新状态修正：当前版本高于所选下载节点最新 Release 时显示黄色“节点待同步”，不再误判为 Release 对齐。
 - v0.1.10 自更新脚本修正：PowerShell 覆盖脚本改为带 UTF-8 BOM 写入，避免中文路径或中文脚本内容在 Windows PowerShell 5.1 下解析失败。
 - v0.1.11 官方详情外链修正：Tauri 桌面端通过系统 opener 打开默认浏览器；普通浏览器/Node 便携版继续使用新标签页。
+- NGA 本地聚合 + Parser v1：`npm test`、`npm run build`、`cargo check --manifest-path src-tauri/Cargo.toml`、`npm run test:e2e`、`npm run validate:nga-parser` 通过。
+- Playwright e2e：新增 `npm run test:e2e`，覆盖首屏渲染、NGA 面板默认状态和保持登录风险提示确认流程。
+- NGA Parser 专项回测：本地样本池 396/396 条含正文， curated harness 29 条 fixture、208 条断言全通过；高置信有效解析 225 条，Wilson 95% 置信区间约 98.2% - 100.0%。

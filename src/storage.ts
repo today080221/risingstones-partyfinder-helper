@@ -1,5 +1,6 @@
-import type { AllianceKey, LocalFilterState, UpdateProvider } from "./types";
+import type { AllianceKey, LocalFilterState, NgaCollectionSettings, RecruitSource, UpdateProvider } from "./types";
 import { DEFAULT_UPDATE_PROVIDER } from "./config";
+import { DEFAULT_NGA_COLLECTION_SETTINGS } from "./lib/nga";
 
 export interface SavedUiState {
   fbType: string;
@@ -13,12 +14,16 @@ export interface SavedUiState {
   updateProvider: UpdateProvider;
   autoCheckUpdates: boolean;
   autoDetectUpdateProvider: boolean;
+  sourceFilter: "all" | RecruitSource;
+  ngaSettings: NgaCollectionSettings;
+  ngaKeepLoginAcknowledged: boolean;
   filters: LocalFilterState;
 }
 
 const STORAGE_KEY = "risingstones-partyfinder-helper:v1";
 
 export const defaultFilters: LocalFilterState = {
+  ngaRecruitView: "teams",
   progressText: "",
   strategyText: "",
   timeText: "",
@@ -45,6 +50,9 @@ export const defaultUiState: SavedUiState = {
   updateProvider: DEFAULT_UPDATE_PROVIDER,
   autoCheckUpdates: true,
   autoDetectUpdateProvider: true,
+  sourceFilter: "all",
+  ngaSettings: DEFAULT_NGA_COLLECTION_SETTINGS,
+  ngaKeepLoginAcknowledged: false,
   filters: defaultFilters
 };
 
@@ -62,6 +70,16 @@ export function loadUiState(): SavedUiState {
       labels: Array.isArray(parsed.labels) ? parsed.labels : [],
       updateProvider: parsedProvider,
       autoCheckUpdates: parsed.autoCheckUpdates ?? true,
+      sourceFilter:
+        parsed.sourceFilter === "official" || parsed.sourceFilter === "nga" || parsed.sourceFilter === "all"
+          ? parsed.sourceFilter
+          : "all",
+      ngaSettings: {
+        ...DEFAULT_NGA_COLLECTION_SETTINGS,
+        ...(parsed.ngaSettings ?? {}),
+        keepLogin: Boolean(parsed.ngaSettings?.keepLogin)
+      },
+      ngaKeepLoginAcknowledged: Boolean(parsed.ngaKeepLoginAcknowledged),
       filters: {
         ...defaultFilters,
         ...(parsed.filters ?? {})

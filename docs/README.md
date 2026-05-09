@@ -12,6 +12,9 @@
 - `features/partyfinder-helper.md`
   FF14 副本招募筛选工具的需求、接口、筛选语义和响应招募边界。
 
+- `features/nga-login-aggregation.md`
+  NGA 本地登录态聚合的需求、合规边界、样本字段、Parser 训练式工作流和 Parser v1 边界。
+
 - `architecture.md`
   本地前端、本地代理、官方接口和 Tampermonkey 脚本的数据流与安全边界。
 
@@ -61,6 +64,12 @@
   PowerShell 自更新脚本无 BOM 导致覆盖安装不执行的修复记录。
 - `worklog/2026-05-08-tauri-official-detail-opener.md`
   Tauri 桌面端官方详情外链无法打开系统浏览器的修复记录。
+
+- `worklog/2026-05-08-nga-login-aggregation.md`
+  NGA 登录态本地聚合、保持登录状态和样本分析报告工作记录。
+
+- `worklog/2026-05-09-nga-parser-handoff.md`
+  NGA Parser v1 当前实现、验证结果和新 thread 接手入口。
 
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。
