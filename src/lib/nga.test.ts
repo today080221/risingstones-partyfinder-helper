@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_NGA_COLLECTION_SETTINGS,
   analyzeNgaSamples,
+  buildNgaCachedTopicIndex,
   classifyNgaSample,
   cleanNgaDisplayText,
+  getNgaSamplesPendingRefresh,
+  mergeNgaSamplesWithDiff,
   normalizeNgaCollectionSettings,
   resolveKeepLoginPreference,
   mergeNgaSamples,
@@ -38,6 +41,12 @@ describe("nga safety preferences", () => {
 });
 
 describe("nga collection controls", () => {
+  it("uses cache refresh defaults for startup review", () => {
+    expect(DEFAULT_NGA_COLLECTION_SETTINGS.autoRefreshOnStart).toBe(true);
+    expect(DEFAULT_NGA_COLLECTION_SETTINGS.refreshIntervalHours).toBe(12);
+    expect(DEFAULT_NGA_COLLECTION_SETTINGS.windowMode).toBe("minimized");
+  });
+
   it("normalizes request interval and maximum item limits", () => {
     expect(
       normalizeNgaCollectionSettings({
@@ -49,8 +58,22 @@ describe("nga collection controls", () => {
       startUrl: "https://bbs.nga.cn/thread.php?fid=321",
       requestIntervalMs: 500,
       maxItems: 999,
+      recentActiveDays: 14,
       includeDetails: true
     });
+  });
+
+  it("clamps cache refresh interval and preserves minimized window mode", () => {
+    expect(
+      normalizeNgaCollectionSettings({
+        refreshIntervalHours: 0,
+        windowMode: "normal"
+      })
+    ).toMatchObject({
+      refreshIntervalHours: 1,
+      windowMode: "normal"
+    });
+    expect(normalizeNgaCollectionSettings({ refreshIntervalHours: 999 }).refreshIntervalHours).toBe(168);
   });
 
   it("allows half-second request interval for advanced users", () => {
@@ -63,6 +86,7 @@ describe("nga collection controls", () => {
       allowMultipleBoards: false,
       requestIntervalMs: 1000,
       maxItems: 500,
+      recentActiveDays: 14,
       includeDetails: true
     });
   });
@@ -1197,6 +1221,7 @@ describe("nga sample whitelist", () => {
       url: "https://bbs.nga.cn/read.php?tid=123",
       author: "楼主",
       publishedAt: "2026-05-08",
+      updatedAt: "2026-05-09",
       forumId: "321",
       topicId: "123",
       cookie: "should-not-exist",
@@ -1208,10 +1233,17 @@ describe("nga sample whitelist", () => {
     expect(Object.keys(sample).sort()).toEqual([
       "author",
       "body",
+      "closedAt",
+      "contentHash",
+      "detailFetchedAt",
       "forumId",
+      "lastCheckedAt",
+      "lastSeenAt",
       "publishedAt",
+      "sourceBoardUrl",
       "title",
       "topicId",
+      "updatedAt",
       "url"
     ]);
     expect(JSON.stringify(sample)).not.toContain("should-not-exist");
@@ -1316,6 +1348,103 @@ describe("nga sample whitelist", () => {
   });
 });
 
+describe("nga cache refresh", () => {
+  it("marks old cached samples as pending refresh without dropping them", () => {
+    const samples = [
+      sanitizeNgaSample({
+        title: "绝欧固定队招募",
+        body: "缺H2 周末晚8-11",
+        url: "https://bbs.nga.cn/read.php?tid=123",
+        topicId: "123",
+        lastCheckedAt: "2026-05-08T08:00:00.000Z"
+      }),
+      sanitizeNgaSample({
+        title: "绝亚固定队招募",
+        body: "缺D1 周末晚8-11",
+        url: "https://bbs.nga.cn/read.php?tid=124",
+        topicId: "124",
+        lastCheckedAt: "2026-05-09T14:00:00.000Z"
+      })
+    ];
+
+    const pending = getNgaSamplesPendingRefresh(samples, 12, new Date("2026-05-09T22:00:00.000Z"));
+    expect(pending.map((sample) => sample.topicId)).toEqual(["123"]);
+    expect(samples).toHaveLength(2);
+  });
+
+  it("builds compact cache index without body text", () => {
+    const index = buildNgaCachedTopicIndex([
+      sanitizeNgaSample({
+        title: "绝欧固定队招募",
+        body: "正文内容",
+        url: "https://bbs.nga.cn/read.php?tid=123",
+        topicId: "123",
+        lastCheckedAt: "2026-05-09T08:00:00.000Z"
+      })
+    ]);
+
+    expect(index).toEqual([
+      expect.objectContaining({
+        topicId: "123",
+        hasBody: true
+      })
+    ]);
+    expect(JSON.stringify(index)).not.toContain("正文内容");
+  });
+
+  it("separates added, updated, checked, and soft-closed merge outcomes", () => {
+    const current = [
+      sanitizeNgaSample({
+        title: "绝欧固定队招募",
+        body: "缺H2",
+        url: "https://bbs.nga.cn/read.php?tid=123",
+        topicId: "123",
+        contentHash: "same"
+      }),
+      sanitizeNgaSample({
+        title: "绝亚固定队招募",
+        body: "缺D1",
+        url: "https://bbs.nga.cn/read.php?tid=124",
+        topicId: "124",
+        contentHash: "old"
+      })
+    ];
+    const result = mergeNgaSamplesWithDiff(current, [
+      sanitizeNgaSample({
+        title: "绝欧固定队招募",
+        url: "https://bbs.nga.cn/read.php?tid=123",
+        topicId: "123",
+        lastCheckedAt: "2026-05-09T08:00:00.000Z",
+        contentHash: "same"
+      }),
+      sanitizeNgaSample({
+        title: "绝亚固定队招募",
+        body: "缺D2",
+        url: "https://bbs.nga.cn/read.php?tid=124",
+        topicId: "124"
+      }),
+      sanitizeNgaSample({
+        title: "绝龙诗固定队招募",
+        body: "缺H1",
+        url: "https://bbs.nga.cn/read.php?tid=125",
+        topicId: "125"
+      }),
+      sanitizeNgaSample({
+        title: "已关闭 招募结束",
+        body: "已关闭",
+        url: "https://bbs.nga.cn/read.php?tid=126",
+        topicId: "126"
+      })
+    ], 20);
+
+    expect(result.checkedKeys).toContain("123");
+    expect(result.updatedKeys).toContain("124");
+    expect(result.addedKeys).toEqual(expect.arrayContaining(["125", "126"]));
+    expect(result.softClosedKeys).toContain("126");
+    expect(result.samples).toHaveLength(4);
+  });
+});
+
 describe("nga sample analysis", () => {
   it("generates parser training report and confirmation questions", () => {
     const report = analyzeNgaSamples(
@@ -1326,6 +1455,7 @@ describe("nga sample analysis", () => {
           url: "https://bbs.nga.cn/read.php?tid=100",
           author: "A",
           publishedAt: "2026-05-08",
+          updatedAt: "2026-05-08",
           forumId: "321",
           topicId: "100"
         },
@@ -1335,6 +1465,7 @@ describe("nga sample analysis", () => {
           url: "https://bbs.nga.cn/read.php?tid=101",
           author: "B",
           publishedAt: "2026-05-08",
+          updatedAt: "2026-05-08",
           forumId: "321",
           topicId: "101"
         }
@@ -1361,6 +1492,7 @@ describe("nga sample analysis", () => {
         url: "https://bbs.nga.cn/read.php?tid=200",
         author: "A",
         publishedAt: "2026-05-08",
+        updatedAt: "2026-05-08",
         forumId: "321",
         topicId: "200"
       }

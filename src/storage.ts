@@ -31,13 +31,15 @@ export const defaultFilters: LocalFilterState = {
   excludeText: "",
   timeStart: "",
   timeEnd: "",
+  dailyMaxHours: "",
   timeDays: [],
+  areaPreferenceId: "",
   selectedLabelIds: [],
   selectedJobIds: [],
   noDuplicateJobs: true,
   selectedPositions: [],
   alliance: "",
-  showUnparsedTime: false
+  showUnparsedTime: true
 };
 
 export const defaultUiState: SavedUiState = {
@@ -97,6 +99,7 @@ export function loadUiState(): SavedUiState {
       filters: {
         ...defaultFilters,
         ...parsedFilters,
+        areaPreferenceId: parsedFilters.areaPreferenceId ?? parsed.targetAreaId ?? "",
         selectedLabelIds
       }
     };

@@ -36,11 +36,34 @@
 - 高级设置中的翻页间隔允许最短 0.5 秒；Rust 命令层同步 clamp 到 500ms，但仍必须等待目标页面就绪后才读取。
 - 保留 `装甲车过本看不到我` 的用户确认极性和 MIT 许可归属，不回滚旧 thread 改动。
 
+## 2026-05-09 Active Scan And Unified Filter Follow-up
+
+- NGA 聚合新增“最近活跃天数”，默认 14 天，`0` 表示不限；列表页会把每个主题可见的最新绝对时间写入 `updatedAt`，旧主题默认不再打开正文。
+- “本次最多读取”文案调整为“本次最多扫描”：预算按列表主题扫描数消耗，不再等同于最终新增/保留样本数。
+- 招募板翻页会在连续两页都是旧主题时停止，避免为了 500 的扫描预算继续打开明显过期内容；无法解析活跃时间的主题仍保留为可读，避免误删。
+- `标签/类型` 统一为固定核心标签 + 当前数据热度排序；石之家会从官方标签、进度、攻略、时间、队伍名等文本轻量解析标签，NGA 继续使用 Parser tag/requirements。
+- 旧关键词筛选默认折叠到“高级筛选”；普通筛选保留标签/类型、不能早于、不能晚于、每日最多小时、星期、保留时间不明确、空位和职业。
+- 时间筛选改为硬约束：开打不得早于填写小时、结束不得晚于填写小时、每日强度不得超过填写小时；未解析出时间的招募默认保留。
+- 结果区顶部新增统一读取状态条，集中展示所选来源、当前读取文案、石之家已取数量和 NGA 已保存招募数，减少侧栏长期占位。
+- 求职视图展示口径统一：石之家求职行和 NGA 求职行都显示“可用职业/可用位置”。
+- 数据范围继续 compact：普通区只保留副本类型和副本名称；石之家请求按副本自带队伍类型完整读取，不再暴露队伍构成、拉取位置和大区请求参数。
+- “招募大区”改为高级筛选里的“大区偏好”，只做本地过滤；24 人团队的 A/B/C 表示团队内 A 队、B 队、C 队偏好，也放入高级筛选，仅在团队副本时出现。
+
+## 2026-05-09 Cache First And Virtual List Follow-up
+
+- NGA 已保存招募改为 cache-first：前端刷新或重进后先展示本地数据，并继续套用当前来源、副本、视图、标签、职业、时间等筛选。
+- `NgaSample` 增加本地复核元数据：`lastCheckedAt`、`lastSeenAt`、`detailFetchedAt`、`contentHash`、`closedAt`、`sourceBoardUrl`；前端传给 Tauri 的 cache 索引只包含主题 ID、URL、更新时间、复核时间、是否已有正文和内容 hash，不传正文大文本。
+- 高级设置新增“启动后自动复核已保存招募”“复核间隔(小时)”和“聚合窗口”；默认自动复核、12 小时间隔、聚合窗口最小化。
+- NGA 聚合顺序调整为先扫描新主题，再静默复核超过间隔、缺正文或状态不确定的旧主题；未变化主题只刷新复核时间，不重复打开正文。
+- `misc/adpage_insert_2.html?...` 继续页面现在会优先自动点击页面里的继续按钮，失败时再提示用户处理。
+- 结果列表接入 `react-virtuoso`，使用 window scroll 承载可变高度卡片；卡片按稳定 ID 热更新，新增/更新时短暂高亮，并在插入或隐藏后做 scroll anchor 补偿。
+- 结果区状态条改为 cache 友好口径：本地已保存、当前命中、待刷新、最近复核；聚合中显示新增、待刷新、已复核和细进度条。
+
 ## Verification
 
-- `npm test`: 106/106 passed.
+- `npm test`: 116/116 passed.
 - `npm run build`: passed.
 - `cargo check --manifest-path src-tauri/Cargo.toml`: passed.
-- `cargo test --manifest-path src-tauri/Cargo.toml`: 5/5 passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml`: 8/8 passed.
 - `npm run test:e2e`: 7/7 passed.
-- `npm run validate:nga-parser`: curated assertions 213/213 passed; command exit is currently blocked by the local saved NGA data differing from the old 396-row baseline. Current local pool is 499 rows, 451 with body, 275 high-confidence effective rows.
+- `npm run validate:nga-parser`: curated assertions 213/213 passed; command exit is currently blocked by the local saved NGA data differing from the old 396-row baseline. Current local pool is 504 rows, 503 with body, 267 high-confidence effective rows.

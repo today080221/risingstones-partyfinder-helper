@@ -5,7 +5,7 @@
 - Branch: `codex/nga-login-aggregation`.
 - The worktree intentionally contains the NGA login aggregation, local sample collection, Parser v1, unified source cards, time parser, sidebar/UI and validation harness changes from the old thread.
 - Do not revert the old-thread edits. They are part of the feature branch.
-- Local NGA sample pool is expected to contain 396 samples and all 396 samples should have `body` text.
+- The historical NGA sample pool baseline was 396 samples with full `body` text. The local pool can now grow through additive aggregation; rely on curated parser assertions first, and record local pool counts when they differ.
 - The gray wiki HTML was used only as a local extraction source for FF14/NGA recruitment parser terms. Do not paste or commit the full HTML source.
 
 ## Implemented Scope
@@ -17,11 +17,17 @@
 - Right-side primary action is now “聚合检索”: it follows the left-side source multi-select, skips Stone Home with a warning when no official dungeon is selected, and still allows NGA-only aggregation.
 - NGA source settings are compact by default: region multi-select, desktop availability summary, saved recruit count, and progress stay visible; advanced collection parameters and developer diagnostics are folded.
 - NGA defaults are now 1 second page interval, 500 total items per NGA aggregate run, and detail/body collection enabled.
+- NGA aggregate now defaults to scanning recently active topics from the last 14 days. The list snapshot stores `updatedAt`; older topics are skipped before detail/body reading when the list page exposes enough activity data.
+- NGA cache-first refresh is now part of the desktop flow: saved rows render immediately after frontend reload, and topics older than the default 12-hour review interval, missing body, or uncertain state are queued for background review.
+- Aggregate reading opens the NGA reading window minimized by default, scans new topics first, then reviews old cached topics. Manual “打开 NGA” still opens a normal visible window.
 - Sidebar order is now data sources, data range, then universal recruitment filters. Stone Home label selection is local-only; Stone Home rows tagged as seeking are included in the player-seeking view.
-- NGA aggregate waits for the visible page to land on a supported board/post. `misc/adpage_insert_2.html?...` continuation pages are treated as retryable waiting states.
+- Universal filters now put tag/type and practical time constraints first. Legacy text keyword filters remain available under folded advanced filters.
+- Data range only exposes dungeon type/name in normal mode. Stone Home area and position request filters were removed from normal fetch; area preference and 24-player A/B/C team preference are advanced local filters.
+- NGA aggregate waits for the visible page to land on a supported board/post. `misc/adpage_insert_2.html?...` continuation pages are retryable; the tool first attempts the page continue button and only asks the user when that fails.
 - NGA detail body extraction uses first floor plus useful original-author follow-ups, filtering bump/placeholder replies; full-thread pagination is intentionally out of scope.
 - NGA card titles use the parsed dungeon name; subtitles and author/team display are cleaned to remove NGA level, prestige, registration date, and similar author metadata.
-- Local additive sample cache with whitelist fields only.
+- Local additive sample cache stores parser fields plus review metadata (`lastCheckedAt`, `lastSeenAt`, `detailFetchedAt`, `contentHash`, `closedAt`, `sourceBoardUrl`) for cache-aware refresh.
+- Result rendering now uses a virtualized window-scroll list with stable row IDs, per-card update highlight, and scroll-anchor compensation.
 - Parser v1 with rules, dictionaries, and heuristics for:
   - team recruitment
   - player seeking team
@@ -46,13 +52,24 @@
 
 ## Latest Validation
 
-- `npm test`: 106 tests passed.
+- `npm test`: 108 tests passed.
 - `npm run build`: passed.
 - `cargo check --manifest-path src-tauri/Cargo.toml`: passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml`: 6 tests passed.
 - `npm run test:e2e`: 7 tests passed.
 - `npm run validate:nga-parser`: 30 curated fixtures, 213 structured assertions, 213 passed.
-- The parser harness curated checks passed. The local saved sample pool is currently 499 total samples, 451 with body, and 275 high-confidence effective rows; the command exits non-zero only because the old local sample baseline expected 396 rows.
+- The parser harness curated checks passed. The local saved sample pool is currently 504 total samples, 503 with body, and 267 high-confidence effective rows; the command exits non-zero only because the old local sample baseline expected 396 rows.
 - Curated parser accuracy is 100.0% on the current hand-labeled edge cases, Wilson 95% confidence interval 98.2%-100.0%.
+
+## 2026-05-09 Active Scan And Filter Follow-up
+
+- NGA visible-window board reading now tracks scanned topics separately from kept samples. `maxItems` is the scan budget, so a run can scan up to 500 topics while only retaining posts that pass recent-active and recruitment-signal filters.
+- `updatedAt` is parsed from board rows and detail pages by taking the latest visible absolute timestamp from that rendered row/page. If no timestamp can be parsed, the topic is kept eligible to avoid dropping ambiguous rows.
+- When all parsed topics on two consecutive board pages are older than the configured recent-active window, the reader stops paging that board.
+- Cards now derive visible tags through one shared tag vocabulary for Stone Home and NGA. Stone Home rows can get lightweight tags from official labels and text such as progress, time, strategy, and team name.
+- Stone Home rows in the seeking view use “可用职业/可用位置” labels just like NGA seeking rows.
+- Current uncommitted pass adds cache-aware NGA review, minimized aggregate reading, automatic continuation-page handling, virtualized results, and updated docs/tests. Do not revert these when continuing.
+- Result-page top status now carries aggregate read progress; the sidebar keeps only compact counts and controls.
 
 ## Next Thread Starting Point
 

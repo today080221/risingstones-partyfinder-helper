@@ -46,4 +46,30 @@ describe("saved local filter migration", () => {
 
     expect(loadUiState().filters.selectedLabelIds).toEqual(["seeking"]);
   });
+
+  it("fills new NGA cache refresh settings for old saved state", () => {
+    localStorage.setItem(
+      "risingstones-partyfinder-helper:v1",
+      JSON.stringify({
+        ...defaultUiState,
+        ngaSettings: {
+          keepLogin: false,
+          startUrl: "https://bbs.nga.cn/thread.php?stid=44366746",
+          selectedBoardUrls: ["https://bbs.nga.cn/thread.php?stid=44366746"],
+          allowMultipleBoards: false,
+          requestIntervalMs: 1000,
+          maxItems: 500,
+          recentActiveDays: 14,
+          filterMode: "balanced",
+          includeDetails: true
+        }
+      })
+    );
+
+    expect(loadUiState().ngaSettings).toMatchObject({
+      autoRefreshOnStart: true,
+      refreshIntervalHours: 12,
+      windowMode: "minimized"
+    });
+  });
 });

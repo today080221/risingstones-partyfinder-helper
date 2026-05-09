@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterRecruitRows } from "./filters";
+import { filterRecruitRows, filterRecruitRowsByDataRange } from "./filters";
 import { buildJobMeta, buildJobPickerGroups, jobCanEnter, matchesOpenPositions } from "./jobs";
 import { matchesKeywordFilter, parseKeywordFilter } from "./keywords";
 import { buildOfficialRecruitParams, collectPaginatedRows } from "./pagination";
@@ -108,6 +108,7 @@ describe("time parsing", () => {
         timeText: "",
         timeStart: "20",
         timeEnd: "23",
+        dailyMaxHours: "",
         timeDays: ["6"],
         showUnparsedTime: false
       })
@@ -117,6 +118,7 @@ describe("time parsing", () => {
         timeText: "",
         timeStart: "21",
         timeEnd: "23",
+        dailyMaxHours: "",
         timeDays: ["1"],
         showUnparsedTime: false
       })
@@ -126,10 +128,54 @@ describe("time parsing", () => {
         timeText: "",
         timeStart: "0",
         timeEnd: "2",
+        dailyMaxHours: "",
         timeDays: [],
         showUnparsedTime: false
       })
     ).toBe(true);
+  });
+
+  it("treats time constraints as hard limits", () => {
+    expect(
+      matchesTimeFilter("周二 20:00-23:00", {
+        timeText: "",
+        timeStart: "20",
+        timeEnd: "23",
+        dailyMaxHours: "3",
+        timeDays: [],
+        showUnparsedTime: false
+      })
+    ).toBe(true);
+    expect(
+      matchesTimeFilter("周二 19:30-23:00", {
+        timeText: "",
+        timeStart: "20",
+        timeEnd: "23",
+        dailyMaxHours: "",
+        timeDays: [],
+        showUnparsedTime: false
+      })
+    ).toBe(false);
+    expect(
+      matchesTimeFilter("周二 20:00-23:30", {
+        timeText: "",
+        timeStart: "",
+        timeEnd: "23",
+        dailyMaxHours: "",
+        timeDays: [],
+        showUnparsedTime: false
+      })
+    ).toBe(false);
+    expect(
+      matchesTimeFilter("周二 20:00-24:00", {
+        timeText: "",
+        timeStart: "",
+        timeEnd: "",
+        dailyMaxHours: "3",
+        timeDays: [],
+        showUnparsedTime: false
+      })
+    ).toBe(false);
   });
 });
 
@@ -297,6 +343,8 @@ describe("local recruit filtering", () => {
         excludeText: "",
         timeStart: "20",
         timeEnd: "23",
+        dailyMaxHours: "",
+        areaPreferenceId: "",
         timeDays: ["6"],
         selectedLabelIds: [],
         selectedJobIds: ["12"],
@@ -329,6 +377,8 @@ describe("local recruit filtering", () => {
         excludeText: "保次",
         timeStart: "",
         timeEnd: "",
+        dailyMaxHours: "",
+        areaPreferenceId: "",
         timeDays: [],
         selectedLabelIds: [],
         selectedJobIds: [],
@@ -369,6 +419,8 @@ describe("local recruit filtering", () => {
         excludeText: "",
         timeStart: "",
         timeEnd: "",
+        dailyMaxHours: "",
+        areaPreferenceId: "",
         timeDays: [],
         selectedLabelIds: ["求职", "社畜"],
         selectedJobIds: [],
@@ -382,6 +434,105 @@ describe("local recruit filtering", () => {
 
     expect(result.rows.map((row) => row.id)).toEqual([1, 2]);
     expect(result.rejected).toBe(1);
+  });
+
+  it("filters derived official and NGA goal tags with one label vocabulary", () => {
+    const rows = [
+      recruit({ id: 1, progress: "首月过本，当前从0开荒" }),
+      recruit({ id: 2, source: "nga", parseTags: ["次月目标"], progress: "开荒" }),
+      recruit({ id: 3, progress: "清CD" })
+    ];
+
+    const result = filterRecruitRows(
+      rows,
+      {
+        ngaRecruitView: "all",
+        progressText: "",
+        strategyText: "",
+        timeText: "",
+        excludeText: "",
+        timeStart: "",
+        timeEnd: "",
+        dailyMaxHours: "",
+        areaPreferenceId: "",
+        timeDays: [],
+        selectedLabelIds: ["首月目标"],
+        selectedJobIds: [],
+        noDuplicateJobs: true,
+        selectedPositions: [],
+        alliance: "",
+        showUnparsedTime: true
+      },
+      meta
+    );
+
+    expect(result.rows.map((row) => row.id)).toEqual([1]);
+    expect(result.rejected).toBe(2);
+  });
+
+  it("filters area preference locally across official and NGA rows", () => {
+    const rows = [
+      recruit({ id: 1, area_name: "陆行鸟", group_name: "红玉海" }),
+      recruit({ id: 2, area_name: "莫古力", group_name: "白银乡" }),
+      recruit({ id: 3, source: "nga", area_name: "NGA", parsedFields: { server: "陆行鸟" } })
+    ];
+    const metaWithAreas: MetaPayload = {
+      ...meta,
+      areas: [{ AreaID: 1, AreaName: "陆行鸟" }]
+    };
+
+    const result = filterRecruitRows(
+      rows,
+      {
+        ngaRecruitView: "all",
+        progressText: "",
+        strategyText: "",
+        timeText: "",
+        excludeText: "",
+        timeStart: "",
+        timeEnd: "",
+        dailyMaxHours: "",
+        areaPreferenceId: "1",
+        timeDays: [],
+        selectedLabelIds: [],
+        selectedJobIds: [],
+        noDuplicateJobs: true,
+        selectedPositions: [],
+        alliance: "",
+        showUnparsedTime: true
+      },
+      metaWithAreas
+    );
+
+    expect(result.rows.map((row) => row.id)).toEqual([1, 3]);
+    expect(result.rejected).toBe(1);
+  });
+
+  it("applies dungeon type and name range to cached NGA rows", () => {
+    const rows = [
+      recruit({ id: 1, source: "official", fb_type: "绝境战", fb_name: "巴哈姆特绝境战" }),
+      recruit({ id: 2, source: "nga", fb_type: "NGA", fb_name: "巴哈姆特绝境战" }),
+      recruit({ id: 3, source: "nga", fb_type: "NGA", fb_name: "妖星乱舞绝境战" }),
+      recruit({ id: 4, source: "nga", fb_type: "NGA", fb_name: "阿卡迪亚登天斗技场 M1S" })
+    ];
+    const metaWithDungeons: MetaPayload = {
+      ...meta,
+      fbConfigs: [
+        { id: "ucob", fb_type: "绝境战", fb_name: "巴哈姆特绝境战", team_composition: "满编小队", weight: 1 },
+        { id: "fru", fb_type: "绝境战", fb_name: "妖星乱舞绝境战", team_composition: "满编小队", weight: 1 },
+        { id: "m1s", fb_type: "零式", fb_name: "阿卡迪亚登天斗技场 M1S", team_composition: "满编小队", weight: 1 }
+      ]
+    };
+
+    expect(filterRecruitRowsByDataRange(rows, { fbType: "绝境战", fbName: "" }, metaWithDungeons).map((row) => row.id)).toEqual([
+      1,
+      2,
+      3
+    ]);
+    expect(filterRecruitRowsByDataRange(rows, { fbType: "绝境战", fbName: "巴哈姆特绝境战" }, metaWithDungeons).map((row) => row.id)).toEqual([
+      1,
+      2
+    ]);
   });
 });
 

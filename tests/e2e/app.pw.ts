@@ -163,7 +163,16 @@ test("renders the first screen and NGA panel without runtime errors", async ({ p
   await expect(page.locator(".nga-board-grid").getByRole("button", { name: "大洋洲" })).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".nga-board-grid").getByRole("button", { name: "美区" })).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByText("数据范围")).toBeVisible();
+  await expect(page.locator(".field").filter({ hasText: "招募大区" })).toHaveCount(0);
+  await expect(page.locator(".field").filter({ hasText: "队伍构成" })).toHaveCount(0);
+  await expect(page.locator(".field").filter({ hasText: "拉取位置" })).toHaveCount(0);
   await expect(page.getByText("标签/类型")).toBeVisible();
+  await expect(page.locator(".field").filter({ hasText: "进度关键词" })).toHaveCount(0);
+  await expect(page.locator(".field").filter({ hasText: "大区偏好" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /高级筛选/ })).toBeVisible();
+  await page.getByRole("button", { name: /高级筛选/ }).click();
+  await expect(page.locator(".field").filter({ hasText: "进度关键词" })).toBeVisible();
+  await expect(page.locator(".field").filter({ hasText: "大区偏好" })).toBeVisible();
   await expect(page.getByText("NGA 招募板地址")).toHaveCount(0);
   await expect(page.getByLabel("保持本机网页会话")).toHaveCount(0);
   await expect(page.getByText(/保存位置/)).toHaveCount(0);
@@ -239,7 +248,7 @@ test("aggregate search can run NGA only without an official dungeon", async ({ p
   await page.locator(".source-toggle-grid").getByRole("button", { name: "石之家" }).click();
   await page.getByRole("button", { name: "聚合检索" }).click();
 
-  await expect(page.getByText(/浏览器预览仅合并当前页面内存\/本机已有 NGA 招募/)).toBeVisible();
+  await expect(page.getByText(/浏览器预览未打开本机网页窗口/)).toBeVisible();
   await expect(page.getByText(/请先选择副本名称/)).toHaveCount(0);
 });
 
@@ -260,7 +269,7 @@ test("player seeking view includes official rows tagged as seeking", async ({ pa
   await page.locator(".source-toggle-grid").getByRole("button", { name: "NGA" }).click();
   await page.locator(".field").filter({ hasText: "副本名称" }).locator("select").selectOption("巴哈姆特绝境战");
   await page.getByRole("button", { name: "聚合检索" }).click();
-  await page.getByRole("button", { name: "玩家求职" }).click();
+  await page.locator(".field").filter({ hasText: "浏览视图" }).getByRole("button", { name: "玩家求职", exact: true }).click();
 
   await expect(page.getByText("绝境战 · 陆行鸟/求职专用")).toBeVisible();
   await expect(page.getByText("绝境战 · 陆行鸟/红玉海")).toHaveCount(0);
@@ -277,10 +286,12 @@ test("local label filter applies after official full fetch", async ({ page }) =>
   await page.locator(".source-toggle-grid").getByRole("button", { name: "NGA" }).click();
   await page.locator(".field").filter({ hasText: "副本名称" }).locator("select").selectOption("巴哈姆特绝境战");
   await page.getByRole("button", { name: "全部" }).click();
-  await page.locator(".field").filter({ hasText: "标签/类型" }).getByRole("button", { name: "求职" }).click();
+  await page.locator(".field").filter({ hasText: "标签/类型" }).getByRole("button", { name: /玩家求职/ }).click();
   await page.getByRole("button", { name: "聚合检索" }).click();
 
   expect(new URL(seenUrl).searchParams.has("label")).toBe(false);
+  expect(new URL(seenUrl).searchParams.has("target_area_id")).toBe(false);
+  expect(new URL(seenUrl).searchParams.has("position")).toBe(false);
   await expect(page.getByText("绝境战 · 陆行鸟/求职专用")).toBeVisible();
   await expect(page.getByText("绝境战 · 陆行鸟/红玉海")).toHaveCount(0);
 });

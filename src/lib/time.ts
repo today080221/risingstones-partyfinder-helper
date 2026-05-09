@@ -26,6 +26,7 @@ export interface TimeFilterInput {
   timeText: string;
   timeStart: string;
   timeEnd: string;
+  dailyMaxHours: string;
   timeDays: string[];
   showUnparsedTime: boolean;
 }
@@ -132,11 +133,14 @@ export function matchesTimeFilter(rawTime: string, filter: TimeFilterInput): boo
     return false;
   }
 
-  const requestedRange = parseRequestedRange(filter.timeStart, filter.timeEnd);
-  const wantsRange = requestedRange !== null;
+  const earliestStart = parseHourConstraint(filter.timeStart, "start");
+  const latestEnd = parseHourConstraint(filter.timeEnd, "end");
+  const maxDailyHours = parsePositiveHourAmount(filter.dailyMaxHours);
+  const wantsRange = earliestStart !== null || latestEnd !== null;
   const wantsDays = filter.timeDays.length > 0;
+  const wantsDuration = maxDailyHours !== null;
 
-  if (!wantsRange && !wantsDays) {
+  if (!wantsRange && !wantsDays && !wantsDuration) {
     return true;
   }
 
@@ -154,11 +158,28 @@ export function matchesTimeFilter(rawTime: string, filter: TimeFilterInput): boo
   }
 
   if (wantsRange && parsed.ranges.length > 0) {
-    return parsed.ranges.some((range) => rangesOverlap(range, requestedRange));
+    const rangesOk = parsed.ranges.every((range) => {
+      if (earliestStart !== null && range.start < earliestStart) {
+        return false;
+      }
+      if (latestEnd !== null && range.end > latestEnd) {
+        return false;
+      }
+      return true;
+    });
+    if (!rangesOk) {
+      return false;
+    }
   }
 
   if (wantsRange && parsed.ranges.length === 0) {
     return filter.showUnparsedTime;
+  }
+
+  if (wantsDuration) {
+    if (!matchesDailyDurationLimit(rawTime, parsed, maxDailyHours)) {
+      return false;
+    }
   }
 
   return true;
@@ -670,31 +691,43 @@ function toClockPart(value: number, options: { nextDay?: boolean } = {}): string
   return options.nextDay ? `次日${text}` : text;
 }
 
-function parseRequestedRange(start: string, end: string): TimeRange | null {
-  if (!start.trim() || !end.trim()) {
+function parseHourConstraint(value: string, mode: "start" | "end"): number | null {
+  if (!value.trim()) {
     return null;
   }
-  const startHour = Number(start);
-  const endHour = Number(end);
-  if (!Number.isFinite(startHour) || !Number.isFinite(endHour)) {
+  const hour = Number(value);
+  if (!Number.isFinite(hour) || hour < 0 || hour > 30) {
     return null;
   }
-  return {
-    start: startHour,
-    end: endHour <= startHour ? endHour + 24 : endHour,
-    raw: `${start}-${end}`,
-    display: formatTimeRangeDisplay(startHour, endHour <= startHour ? endHour + 24 : endHour, ""),
-    index: -1
-  };
+  if (mode === "end" && hour >= 0 && hour <= 6) {
+    return hour === 0 ? 24 : hour + 24;
+  }
+  return hour;
 }
 
-function rangesOverlap(a: TimeRange, b: TimeRange): boolean {
-  for (const shift of [-24, 0, 24]) {
-    const shiftedStart = a.start + shift;
-    const shiftedEnd = a.end + shift;
-    if (shiftedStart < b.end && b.start < shiftedEnd) {
-      return true;
-    }
+function parsePositiveHourAmount(value: string): number | null {
+  if (!value.trim()) {
+    return null;
   }
-  return false;
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 && amount <= 24 ? amount : null;
+}
+
+function matchesDailyDurationLimit(rawTime: string, parsed: ParsedTimeInfo, maxHours: number): boolean {
+  const explicitDurations = parseRecruitDailyDurations(rawTime);
+  if (explicitDurations.length) {
+    return explicitDurations.every((duration) => duration.maxHours <= maxHours);
+  }
+  if (!parsed.ranges.length) {
+    return true;
+  }
+  const durations = parsed.ranges.map((range) => range.end - range.start).filter((duration) => duration > 0);
+  if (!durations.length) {
+    return true;
+  }
+  if (hasAlternativeTimezoneContext(rawTime) && durations.length >= 2) {
+    return durations.every((duration) => duration <= maxHours);
+  }
+  const total = durations.reduce((sum, duration) => sum + duration, 0);
+  return total <= maxHours;
 }

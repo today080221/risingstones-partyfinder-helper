@@ -1,5 +1,6 @@
 import type {
   NgaCollectionSettings,
+  NgaCachedTopic,
   NgaFilterMode,
   NgaParseConfidence,
   NgaParseEvidence,
@@ -17,8 +18,15 @@ export const NGA_SAMPLE_FIELDS: Array<keyof NgaSample> = [
   "url",
   "author",
   "publishedAt",
+  "updatedAt",
   "forumId",
-  "topicId"
+  "topicId",
+  "lastCheckedAt",
+  "lastSeenAt",
+  "detailFetchedAt",
+  "contentHash",
+  "closedAt",
+  "sourceBoardUrl"
 ];
 
 export const NGA_RECRUIT_BOARD_URLS = {
@@ -37,8 +45,12 @@ export const DEFAULT_NGA_COLLECTION_SETTINGS: NgaCollectionSettings = {
   startUrl: NGA_RECRUIT_BOARD_URLS.cn,
   selectedBoardUrls: [...DEFAULT_NGA_SELECTED_BOARD_URLS],
   allowMultipleBoards: false,
+  autoRefreshOnStart: true,
+  refreshIntervalHours: 12,
+  windowMode: "minimized",
   requestIntervalMs: 1000,
   maxItems: 500,
+  recentActiveDays: 14,
   filterMode: "balanced",
   includeDetails: true
 };
@@ -48,6 +60,10 @@ const MAX_REQUEST_INTERVAL_MS = 15000;
 const MIN_MAX_ITEMS = 1;
 export const NGA_MAX_SAMPLE_STORE_ITEMS = 1500;
 const MAX_MAX_ITEMS = 1500;
+const MIN_REFRESH_INTERVAL_HOURS = 1;
+const MAX_REFRESH_INTERVAL_HOURS = 168;
+const MIN_RECENT_ACTIVE_DAYS = 0;
+const MAX_RECENT_ACTIVE_DAYS = 180;
 const HIGH_FREQUENCY_LIMIT = 12;
 const EXAMPLE_LIMIT = 3;
 const TOKEN_SPLIT_RE = /[\s,，;；|、/\\()[\]【】<>《》"'“”‘’!！?？:：]+/;
@@ -484,17 +500,30 @@ export function normalizeNgaCollectionSettings(
   const startUrl = normalizeNgaStartUrl(input.startUrl);
   const allowMultipleBoards = Boolean(input.allowMultipleBoards);
   const selectedBoardUrls = normalizeNgaSelectedBoardUrls(input.selectedBoardUrls, startUrl, allowMultipleBoards);
+  const windowMode = input.windowMode === "normal" ? "normal" : DEFAULT_NGA_COLLECTION_SETTINGS.windowMode;
   return {
     keepLogin: Boolean(input.keepLogin),
     startUrl,
     selectedBoardUrls,
     allowMultipleBoards,
+    autoRefreshOnStart: input.autoRefreshOnStart ?? DEFAULT_NGA_COLLECTION_SETTINGS.autoRefreshOnStart,
+    refreshIntervalHours: clampInteger(
+      input.refreshIntervalHours ?? DEFAULT_NGA_COLLECTION_SETTINGS.refreshIntervalHours,
+      MIN_REFRESH_INTERVAL_HOURS,
+      MAX_REFRESH_INTERVAL_HOURS
+    ),
+    windowMode,
     requestIntervalMs: clampInteger(
       input.requestIntervalMs ?? DEFAULT_NGA_COLLECTION_SETTINGS.requestIntervalMs,
       MIN_REQUEST_INTERVAL_MS,
       MAX_REQUEST_INTERVAL_MS
     ),
     maxItems: clampInteger(input.maxItems ?? DEFAULT_NGA_COLLECTION_SETTINGS.maxItems, MIN_MAX_ITEMS, MAX_MAX_ITEMS),
+    recentActiveDays: clampInteger(
+      input.recentActiveDays ?? DEFAULT_NGA_COLLECTION_SETTINGS.recentActiveDays,
+      MIN_RECENT_ACTIVE_DAYS,
+      MAX_RECENT_ACTIVE_DAYS
+    ),
     filterMode: input.filterMode ?? DEFAULT_NGA_COLLECTION_SETTINGS.filterMode,
     includeDetails: input.includeDetails ?? DEFAULT_NGA_COLLECTION_SETTINGS.includeDetails
   };
@@ -505,14 +534,25 @@ export function cleanNgaDisplayText(value: unknown): string {
 }
 
 export function sanitizeNgaSample<T extends Partial<Record<keyof NgaSample, unknown>>>(input: T): NgaSample {
-  return {
+  const sample = {
     title: cleanNgaTitle(input.title),
     body: cleanText(input.body),
     url: cleanUrl(input.url),
     author: cleanText(input.author),
     publishedAt: cleanText(input.publishedAt),
+    updatedAt: cleanText(input.updatedAt),
     forumId: cleanIdentifier(input.forumId),
-    topicId: cleanIdentifier(input.topicId)
+    topicId: cleanIdentifier(input.topicId),
+    lastCheckedAt: cleanText(input.lastCheckedAt),
+    lastSeenAt: cleanText(input.lastSeenAt),
+    detailFetchedAt: cleanText(input.detailFetchedAt),
+    contentHash: cleanIdentifier(input.contentHash),
+    closedAt: cleanText(input.closedAt),
+    sourceBoardUrl: cleanUrl(input.sourceBoardUrl)
+  };
+  return {
+    ...sample,
+    contentHash: sample.contentHash || computeNgaSampleContentHash(sample)
   };
 }
 
@@ -569,6 +609,105 @@ export function mergeNgaSamples<T extends Partial<Record<keyof NgaSample, unknow
   }
 
   return samples;
+}
+
+export interface NgaSampleMergeResult {
+  samples: NgaSample[];
+  addedKeys: string[];
+  updatedKeys: string[];
+  checkedKeys: string[];
+  softClosedKeys: string[];
+}
+
+export function mergeNgaSamplesWithDiff(
+  currentSamples: NgaSample[],
+  incomingSamples: NgaSample[],
+  maxItems: number
+): NgaSampleMergeResult {
+  const current = mergeNgaSamples(currentSamples, maxItems);
+  const currentByKey = new Map(current.map((sample) => [getNgaSampleKey(sample), sample]).filter(([key]) => Boolean(key)) as Array<[string, NgaSample]>);
+  const incoming = mergeNgaSamples(incomingSamples, maxItems);
+  const addedKeys: string[] = [];
+  const updatedKeys: string[] = [];
+  const checkedKeys: string[] = [];
+  const softClosedKeys: string[] = [];
+
+  for (const sample of incoming) {
+    const key = getNgaSampleKey(sample);
+    if (!key) {
+      continue;
+    }
+    const previous = currentByKey.get(key);
+    if (!previous) {
+      addedKeys.push(key);
+      if (isNgaSampleSoftClosed(sample)) {
+        softClosedKeys.push(key);
+      }
+      continue;
+    }
+    if (isNgaSampleSoftClosed(sample) && !isNgaSampleSoftClosed(previous)) {
+      softClosedKeys.push(key);
+    }
+    if (hasNgaSampleContentChanged(previous, sample)) {
+      updatedKeys.push(key);
+    } else if (sample.lastCheckedAt || sample.lastSeenAt) {
+      checkedKeys.push(key);
+    }
+  }
+
+  return {
+    samples: mergeNgaSamples([...current, ...incoming], maxItems),
+    addedKeys,
+    updatedKeys,
+    checkedKeys,
+    softClosedKeys
+  };
+}
+
+export function getNgaSampleKey(sample: NgaSample): string {
+  return ngaSampleKey(sanitizeNgaSample(sample));
+}
+
+export function buildNgaCachedTopicIndex(samples: NgaSample[]): NgaCachedTopic[] {
+  return mergeNgaSamples(samples, NGA_MAX_SAMPLE_STORE_ITEMS).map((sample) => ({
+    title: sample.title,
+    url: sample.url,
+    topicId: sample.topicId,
+    updatedAt: sample.updatedAt,
+    lastCheckedAt: sample.lastCheckedAt,
+    hasBody: Boolean(sample.body),
+    contentHash: sample.contentHash || computeNgaSampleContentHash(sample),
+    sourceBoardUrl: sample.sourceBoardUrl
+  }));
+}
+
+export function getNgaSamplesPendingRefresh(
+  samples: NgaSample[],
+  refreshIntervalHours = DEFAULT_NGA_COLLECTION_SETTINGS.refreshIntervalHours,
+  now = new Date()
+): NgaSample[] {
+  const cutoff = now.getTime() - clampInteger(refreshIntervalHours, MIN_REFRESH_INTERVAL_HOURS, MAX_REFRESH_INTERVAL_HOURS) * 60 * 60 * 1000;
+  return mergeNgaSamples(samples, NGA_MAX_SAMPLE_STORE_ITEMS).filter((sample) => {
+    if (sample.closedAt) {
+      return false;
+    }
+    if (!sample.body || isNgaSampleSoftClosed(sample)) {
+      return true;
+    }
+    const checkedAt = Date.parse(sample.lastCheckedAt || sample.detailFetchedAt || sample.lastSeenAt || "");
+    return !Number.isFinite(checkedAt) || checkedAt < cutoff;
+  });
+}
+
+export function computeNgaSampleContentHash(sample: Partial<NgaSample>): string {
+  const text = [sample.title, sample.body, sample.updatedAt, sample.author]
+    .map((value) => cleanText(value))
+    .join("\n");
+  let hash = 5381;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 33) ^ text.charCodeAt(index);
+  }
+  return (hash >>> 0).toString(16);
 }
 
 export function shouldContinueNgaCollection(collected: number, maxItems: number, cancelled: boolean): boolean {
@@ -5138,9 +5277,46 @@ function mergeNgaSamplePair(current: NgaSample, incoming: NgaSample): NgaSample 
     url: primary.url || fallback.url,
     author: primary.author || fallback.author,
     publishedAt: primary.publishedAt || fallback.publishedAt,
+    updatedAt: primary.updatedAt || fallback.updatedAt,
     forumId: primary.forumId || fallback.forumId,
-    topicId: primary.topicId || fallback.topicId
+    topicId: primary.topicId || fallback.topicId,
+    lastCheckedAt: latestIsoish(primary.lastCheckedAt, fallback.lastCheckedAt),
+    lastSeenAt: latestIsoish(primary.lastSeenAt, fallback.lastSeenAt),
+    detailFetchedAt: latestIsoish(primary.detailFetchedAt, fallback.detailFetchedAt),
+    contentHash: primary.contentHash || fallback.contentHash || computeNgaSampleContentHash(primary),
+    closedAt: latestIsoish(primary.closedAt, fallback.closedAt),
+    sourceBoardUrl: primary.sourceBoardUrl || fallback.sourceBoardUrl
   };
+}
+
+function hasNgaSampleContentChanged(previous: NgaSample, next: NgaSample): boolean {
+  const previousHash = previous.contentHash || computeNgaSampleContentHash(previous);
+  const nextHash = next.contentHash || computeNgaSampleContentHash(next);
+  if (previousHash !== nextHash) {
+    return true;
+  }
+  return Boolean(next.body && previous.body && next.body !== previous.body);
+}
+
+export function isNgaSampleSoftClosed(sample: NgaSample): boolean {
+  return Boolean(sample.closedAt) || classifyNgaSample(sample).isClosed;
+}
+
+function latestIsoish(a?: string, b?: string): string {
+  const first = cleanText(a);
+  const second = cleanText(b);
+  if (!first) {
+    return second;
+  }
+  if (!second) {
+    return first;
+  }
+  const firstTime = Date.parse(first);
+  const secondTime = Date.parse(second);
+  if (!Number.isFinite(firstTime) || !Number.isFinite(secondTime)) {
+    return first || second;
+  }
+  return firstTime >= secondTime ? first : second;
 }
 
 function ngaSampleCompletenessScore(sample: NgaSample): number {
@@ -5149,8 +5325,11 @@ function ngaSampleCompletenessScore(sample: NgaSample): number {
     (sample.title ? 80 : 0) +
     (sample.author ? 20 : 0) +
     (sample.publishedAt ? 20 : 0) +
+    (sample.updatedAt ? 30 : 0) +
     (sample.forumId ? 10 : 0) +
-    (sample.topicId ? 10 : 0)
+    (sample.topicId ? 10 : 0) +
+    (sample.lastCheckedAt ? 2 : 0) +
+    (sample.lastSeenAt ? 2 : 0)
   );
 }
 

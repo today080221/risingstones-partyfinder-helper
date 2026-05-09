@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Virtuoso } from "react-virtuoso";
 import {
   checkUpdate,
   cancelNgaCollection,
@@ -44,7 +45,7 @@ import {
 } from "./api";
 import { UPDATE_PROVIDER_LABELS } from "./config";
 import { isTauriRuntime, openExternalUrl } from "./lib/external-links";
-import { filterRecruitRows } from "./lib/filters";
+import { filterRecruitRows, filterRecruitRowsByDataRange } from "./lib/filters";
 import {
   FULL_PARTY_POSITIONS,
   LIGHT_PARTY_POSITIONS,
@@ -54,15 +55,22 @@ import {
 } from "./lib/jobs";
 import {
   analyzeNgaSamples,
+  buildNgaCachedTopicIndex,
   classifyNgaSample,
   cleanNgaDisplayText,
+  getNgaSampleKey,
+  getNgaSamplesPendingRefresh,
+  isNgaSampleSoftClosed,
   mergeNgaSamples,
+  mergeNgaSamplesWithDiff,
   NGA_MAX_SAMPLE_STORE_ITEMS,
   NGA_RECRUIT_BOARD_URLS,
   normalizeNgaCollectionSettings,
   resolveKeepLoginPreference,
+  sanitizeNgaSample,
   shouldShowNgaSample
 } from "./lib/nga";
+import { buildRecruitTagOptions, deriveRecruitTags } from "./lib/tags";
 import { formatRecruitDailyDuration, formatRecruitTimeDisplay } from "./lib/time";
 import { getUpdateLevel, getUpdateStatusLabel, getUpdateStatusText } from "./lib/update-status";
 import { ALL_RECRUIT_SOURCES, defaultFilters, loadUiState, saveUiState } from "./storage";
@@ -131,6 +139,7 @@ const NGA_KEEP_LOGIN_NOTICE =
 const NGA_AUTO_COLLECT_MAX_WAIT_MS = 15 * 60 * 1000;
 const NGA_BOARD_READY_MAX_WAIT_MS = 15 * 1000;
 const NGA_BOARD_INTERSTITIAL_MAX_WAIT_MS = 45 * 1000;
+const NGA_UPDATE_FLASH_MS = 2200;
 const NGA_RECRUIT_BOARD_PRESETS = [
   [NGA_RECRUIT_BOARD_URLS.cn, "国服"],
   [NGA_RECRUIT_BOARD_URLS.jp, "日服"],
@@ -145,10 +154,7 @@ export function App() {
   const [metaError, setMetaError] = useState("");
   const [fbType, setFbType] = useState(initialState.fbType);
   const [fbName, setFbName] = useState(initialState.fbName);
-  const [targetAreaId, setTargetAreaId] = useState(initialState.targetAreaId);
   const [teamComposition, setTeamComposition] = useState(initialState.teamComposition);
-  const [officialPosition, setOfficialPosition] = useState(initialState.officialPosition);
-  const [officialAlliance, setOfficialAlliance] = useState<"" | AllianceKey>(initialState.officialAlliance);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialState.sidebarCollapsed);
   const [updateProvider, setUpdateProvider] = useState<UpdateProvider>(initialState.updateProvider);
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(initialState.autoCheckUpdates);
@@ -160,6 +166,9 @@ export function App() {
   const [ngaKeepLoginAcknowledged, setNgaKeepLoginAcknowledged] = useState(initialState.ngaKeepLoginAcknowledged);
   const [ngaSession, setNgaSession] = useState<NgaSessionStatusPayload | null>(null);
   const [ngaSamples, setNgaSamples] = useState<NgaSample[]>([]);
+  const [ngaSamplesLoaded, setNgaSamplesLoaded] = useState(false);
+  const [updatedRowKeys, setUpdatedRowKeys] = useState<Set<string>>(() => new Set());
+  const [softClosedRowKeys, setSoftClosedRowKeys] = useState<Set<string>>(() => new Set());
   const [ngaSampleStoreLocation, setNgaSampleStoreLocation] = useState("");
   const [ngaReport, setNgaReport] = useState<NgaSampleAnalysisReport | null>(null);
   const [ngaProgress, setNgaProgress] = useState<NgaCollectionProgress>({
@@ -176,6 +185,7 @@ export function App() {
   const [isCollectingNga, setIsCollectingNga] = useState(false);
   const [isAutoCollectArmed, setIsAutoCollectArmed] = useState(false);
   const [filters, setFilters] = useState<LocalFilterState>(initialState.filters);
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const [jobSearch, setJobSearch] = useState("");
   const [appVersion, setAppVersion] = useState<AppVersionPayload | null>(null);
   const [geoInfo, setGeoInfo] = useState<GeoIpPayload | null>(null);
@@ -193,6 +203,7 @@ export function App() {
   const updateAbortRef = useRef<AbortController | null>(null);
   const ngaAutoCollectRunRef = useRef(0);
   const ngaAutoCollectStartedRef = useRef(false);
+  const flashTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -238,6 +249,7 @@ export function App() {
       .then((payload) => {
         const samples = mergeNgaSamples(payload.samples, NGA_MAX_SAMPLE_STORE_ITEMS);
         setNgaSamples(samples);
+        setSoftClosedRowKeys(new Set(samples.filter(isNgaSampleSoftClosed).map((sample) => getNgaRenderKey(sample))));
         setNgaSampleStoreLocation(payload.dataLocation);
         if (samples.length > 0) {
           setNgaReport(analyzeNgaSamples(samples));
@@ -248,6 +260,9 @@ export function App() {
         if (error.name !== "AbortError") {
           setNgaError(`NGA 已保存招募读取失败：${error.message}`);
         }
+      })
+      .finally(() => {
+        setNgaSamplesLoaded(true);
       });
     return () => controller.abort();
   }, []);
@@ -286,6 +301,9 @@ export function App() {
   useEffect(() => {
     return () => {
       ngaAutoCollectRunRef.current += 1;
+      if (flashTimerRef.current) {
+        window.clearTimeout(flashTimerRef.current);
+      }
     };
   }, []);
 
@@ -319,11 +337,11 @@ export function App() {
     saveUiState({
       fbType,
       fbName,
-      targetAreaId,
+      targetAreaId: filters.areaPreferenceId,
       labels: filters.selectedLabelIds,
       teamComposition,
-      officialPosition,
-      officialAlliance,
+      officialPosition: "",
+      officialAlliance: "",
       sidebarCollapsed,
       updateProvider,
       autoCheckUpdates,
@@ -336,10 +354,8 @@ export function App() {
   }, [
     fbType,
     fbName,
-    targetAreaId,
     teamComposition,
-    officialPosition,
-    officialAlliance,
+    filters.areaPreferenceId,
     sidebarCollapsed,
     updateProvider,
     autoCheckUpdates,
@@ -397,11 +413,24 @@ export function App() {
     }
     return rows;
   }, [hasNgaSource, hasOfficialSource, ngaRows, officialRows]);
+  const rangeRows = useMemo(
+    () => filterRecruitRowsByDataRange(combinedRows, { fbType, fbName }, meta),
+    [combinedRows, fbName, fbType, meta]
+  );
   const viewRows = useMemo(
-    () => combinedRows.filter((row) => matchesRecruitView(row, filters.ngaRecruitView)),
-    [combinedRows, filters.ngaRecruitView]
+    () => rangeRows.filter((row) => matchesRecruitView(row, filters.ngaRecruitView)),
+    [filters.ngaRecruitView, rangeRows]
+  );
+  const tagFilterOptions = useMemo(
+    () => buildRecruitTagOptions(viewRows, meta?.labels ?? [], filters.selectedLabelIds),
+    [filters.selectedLabelIds, meta, viewRows]
   );
   const filtered = useMemo(() => filterRecruitRows(viewRows, filters, meta), [filters, meta, viewRows]);
+  const pendingNgaRefreshSamples = useMemo(
+    () => getNgaSamplesPendingRefresh(ngaSamples, ngaSettings.refreshIntervalHours),
+    [ngaSamples, ngaSettings.refreshIntervalHours]
+  );
+  const latestNgaCheckedAt = useMemo(() => getLatestNgaCacheTime(ngaSamples), [ngaSamples]);
   const suggestedUpdateAsset = useMemo(
     () => selectUpdateAsset(updateInfo?.assets ?? [], appVersion),
     [appVersion, updateInfo]
@@ -409,6 +438,31 @@ export function App() {
   const updatePanelLevel = useMemo(() => getUpdateLevel(updateInfo, false, ""), [updateInfo]);
   const updatePanelLabel = updateInfo ? getUpdateStatusLabel(updatePanelLevel, updateInfo, false, "") : "";
   const updatePanelText = updateInfo ? getUpdateStatusText(updatePanelLevel, updateInfo, updateProvider, "") : "";
+
+  useEffect(() => {
+    if (
+      ngaAutoCollectStartedRef.current ||
+      !ngaSamplesLoaded ||
+      !ngaSettings.autoRefreshOnStart ||
+      !hasNgaSource ||
+      !isTauriRuntime() ||
+      isCollectingNga ||
+      pendingNgaRefreshSamples.length === 0
+    ) {
+      return;
+    }
+    ngaAutoCollectStartedRef.current = true;
+    const timer = window.setTimeout(() => {
+      void collectNgaSelectedBoards(undefined, { reason: "startup-refresh" });
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [
+    hasNgaSource,
+    isCollectingNga,
+    ngaSamplesLoaded,
+    ngaSettings.autoRefreshOnStart,
+    pendingNgaRefreshSamples.length
+  ]);
 
   const groupedJobs = useMemo(() => {
     if (!meta) {
@@ -472,10 +526,28 @@ export function App() {
     );
   }
 
-  async function applyNgaSamples(nextSamples: NgaSample[], message?: string): Promise<NgaSample[]> {
-    const sanitized = mergeNgaSamples(nextSamples, NGA_MAX_SAMPLE_STORE_ITEMS);
+  async function applyNgaSamples(incomingSamples: NgaSample[], message?: string, options: { replace?: boolean } = {}): Promise<NgaSample[]> {
+    const enrichedIncoming = incomingSamples.map((sample) => enrichNgaSampleForCache(sample));
+    const scrollAnchor = captureResultScrollAnchor();
+    const mergeResult = options.replace
+      ? {
+          samples: mergeNgaSamples(enrichedIncoming, NGA_MAX_SAMPLE_STORE_ITEMS),
+          addedKeys: enrichedIncoming.map(getNgaSampleKey).filter(Boolean),
+          updatedKeys: [],
+          checkedKeys: [],
+          softClosedKeys: enrichedIncoming.filter(isNgaSampleSoftClosed).map(getNgaSampleKey).filter(Boolean)
+        }
+      : mergeNgaSamplesWithDiff(ngaSamples, enrichedIncoming, NGA_MAX_SAMPLE_STORE_ITEMS);
+    const sanitized = mergeResult.samples;
     setNgaSamples(sanitized);
     setNgaReport(sanitized.length ? analyzeNgaSamples(sanitized) : null);
+    if (options.replace) {
+      setUpdatedRowKeys(new Set());
+      setSoftClosedRowKeys(new Set(sanitized.filter(isNgaSampleSoftClosed).map((sample) => getNgaRenderKey(sample))));
+    } else {
+      markNgaRowsChanged(mergeResult.addedKeys, mergeResult.updatedKeys, mergeResult.softClosedKeys);
+    }
+    restoreResultScrollAnchor(scrollAnchor);
     try {
       const saved = await saveNgaSamples(sanitized);
       setNgaSampleStoreLocation(saved.dataLocation);
@@ -485,6 +557,29 @@ export function App() {
       setNgaError(error instanceof Error ? `NGA 招募保存失败：${error.message}` : `NGA 招募保存失败：${String(error)}`);
     }
     return sanitized;
+  }
+
+  function markNgaRowsChanged(addedKeys: string[], updatedKeys: string[], softClosedKeys: string[]) {
+    const flashKeys = [...addedKeys, ...updatedKeys].map((key) => `nga-${key}`);
+    const closedKeys = softClosedKeys.map((key) => `nga-${key}`);
+    if (flashKeys.length) {
+      setUpdatedRowKeys((current) => new Set([...current, ...flashKeys]));
+      if (flashTimerRef.current) {
+        window.clearTimeout(flashTimerRef.current);
+      }
+      flashTimerRef.current = window.setTimeout(() => {
+        setUpdatedRowKeys((current) => {
+          const next = new Set(current);
+          for (const key of flashKeys) {
+            next.delete(key);
+          }
+          return next;
+        });
+      }, NGA_UPDATE_FLASH_MS);
+    }
+    if (closedKeys.length) {
+      setSoftClosedRowKeys((current) => new Set([...current, ...closedKeys]));
+    }
   }
 
   function toggleJobId(jobId: string) {
@@ -501,8 +596,6 @@ export function App() {
     if (config) {
       setFbType(config.fb_type);
       setTeamComposition(config.team_composition);
-      setOfficialPosition("");
-      setOfficialAlliance("");
       updateFilters({ selectedPositions: [], alliance: "" });
     }
   }
@@ -523,10 +616,7 @@ export function App() {
       const query = buildRecruitQuery({
         fbName,
         fbType,
-        targetAreaId,
-        teamComposition,
-        officialPosition,
-        officialAlliance
+        teamComposition
       });
       const result = await fetchRecruits(query, controller.signal);
       setPayload(result);
@@ -566,10 +656,7 @@ export function App() {
             const query = buildRecruitQuery({
               fbName,
               fbType,
-              targetAreaId,
-              teamComposition,
-              officialPosition,
-              officialAlliance
+              teamComposition
             });
             const result = await fetchRecruits(query, controller.signal);
             setPayload(result);
@@ -625,7 +712,7 @@ export function App() {
     setNgaError("");
     setNgaMessage("");
     try {
-      const result = await openNgaSession(ngaSettings);
+      const result = await openNgaSession({ ...ngaSettings, windowMode: "normal" });
       setNgaSession(result);
       setNgaMessage(result.message);
     } catch (error) {
@@ -672,9 +759,11 @@ export function App() {
       message: "正在按设置的请求间隔读取当前 NGA 可见页面。"
     });
     try {
-      const result: NgaCollectPayload = await collectNgaVisibleSamples(ngaSettings);
+      const result: NgaCollectPayload = await collectNgaVisibleSamples(
+        { ...ngaSettings, cachedSamples: buildNgaCachedTopicIndex(ngaSamples) }
+      );
       const sanitized = await applyNgaSamples(
-        [...ngaSamples, ...result.samples],
+        result.samples,
         `${result.progress.message} 已保存招募现有 ${mergeNgaSamples([...ngaSamples, ...result.samples], NGA_MAX_SAMPLE_STORE_ITEMS).length} 条。`
       );
       setNgaProgress(result.progress);
@@ -699,13 +788,14 @@ export function App() {
     }
   }
 
-  async function collectNgaSelectedBoards(signal?: AbortSignal) {
+  async function collectNgaSelectedBoards(signal?: AbortSignal, options: { reason?: "startup-refresh" | "manual" } = {}) {
     const runId = ngaAutoCollectRunRef.current + 1;
     ngaAutoCollectRunRef.current = runId;
     const boardUrls = ngaSettings.selectedBoardUrls.length ? ngaSettings.selectedBoardUrls : [ngaSettings.startUrl];
     const startedAt = new Date().toISOString();
     const totalBudget = ngaSettings.maxItems;
-    let collectedThisRun = 0;
+    let scannedThisRun = 0;
+    let keptThisRun = 0;
     let collectedSamples = ngaSamples;
 
     if (!isTauriRuntime()) {
@@ -742,7 +832,7 @@ export function App() {
         await navigateNgaSession(boardUrls[0], signal);
         setNgaMessage("已复用当前 NGA 窗口，开始按地区顺序读取。");
       } else {
-        const sessionResult = await openNgaSession({ ...ngaSettings, startUrl: boardUrls[0] }, signal);
+        const sessionResult = await openNgaSession({ ...ngaSettings, startUrl: boardUrls[0], windowMode: ngaSettings.windowMode }, signal);
         setNgaSession(sessionResult);
       }
     } catch (error) {
@@ -762,12 +852,12 @@ export function App() {
 
     try {
       for (let index = 0; index < boardUrls.length; index += 1) {
-        if (signal?.aborted || ngaAutoCollectRunRef.current !== runId || collectedThisRun >= totalBudget) {
+        if (signal?.aborted || ngaAutoCollectRunRef.current !== runId || scannedThisRun >= totalBudget) {
           break;
         }
         const boardUrl = boardUrls[index];
         const boardLabel = NGA_RECRUIT_BOARD_PRESETS.find(([url]) => url === boardUrl)?.[1] ?? "NGA 招募板";
-        const remaining = totalBudget - collectedThisRun;
+        const remaining = totalBudget - scannedThisRun;
 
         if (index > 0) {
           await navigateNgaSession(boardUrl, signal);
@@ -782,17 +872,22 @@ export function App() {
           ...current,
           status: "collecting",
           currentUrl: boardUrl,
-          collected: collectedThisRun,
+          collected: scannedThisRun,
           maxItems: totalBudget,
           message: `正在读取 ${boardLabel}，本轮剩余预算 ${remaining} 条。`
         }));
 
-        const result = await collectNgaVisibleSamples({ ...ngaSettings, maxItems: remaining }, signal);
-        collectedThisRun += result.samples.length;
+        const result = await collectNgaVisibleSamples(
+          { ...ngaSettings, maxItems: remaining, cachedSamples: buildNgaCachedTopicIndex(collectedSamples) },
+          signal
+        );
+        const scannedByBoard = Math.min(result.progress.collected || result.samples.length, remaining);
+        scannedThisRun += scannedByBoard;
+        keptThisRun += result.progress.added ?? result.samples.length;
         if (result.samples.length) {
           collectedSamples = await applyNgaSamples(
-            [...collectedSamples, ...result.samples],
-            `已从 ${boardLabel} 读取 ${result.samples.length} 条，已保存招募现有 ${mergeNgaSamples([...collectedSamples, ...result.samples], NGA_MAX_SAMPLE_STORE_ITEMS).length} 条。`
+            result.samples,
+            `已从 ${boardLabel} 扫描 ${result.progress.collected} 个主题，新增 ${result.progress.added ?? 0} 条，复核 ${result.progress.checked ?? 0} 条。`
           );
         }
         if (result.warnings.length) {
@@ -801,7 +896,7 @@ export function App() {
         setNgaProgress({
           ...result.progress,
           currentUrl: boardUrl,
-          collected: Math.min(collectedThisRun, totalBudget),
+          collected: Math.min(scannedThisRun, totalBudget),
           maxItems: totalBudget,
           message: `${boardLabel}：${result.progress.message}`
         });
@@ -811,13 +906,17 @@ export function App() {
       setNgaProgress((current) => ({
         ...current,
         status: cancelled ? "cancelled" : "completed",
-        collected: Math.min(collectedThisRun, totalBudget),
+        collected: Math.min(scannedThisRun, totalBudget),
         maxItems: totalBudget,
-        message: cancelled ? "NGA 聚合读取已停止。" : `NGA 聚合检索完成，本轮新增 ${collectedThisRun} 条。`,
+        message: cancelled ? "NGA 聚合读取已停止。" : `NGA 聚合检索完成，已扫描 ${scannedThisRun}/${totalBudget} 个主题，本轮新增 ${keptThisRun} 条。`,
         finishedAt: new Date().toISOString()
       }));
       if (!cancelled) {
-        setNgaMessage(`NGA 聚合检索完成，本轮新增 ${collectedThisRun} 条，已保存招募现有 ${collectedSamples.length} 条。`);
+        setNgaMessage(
+          options.reason === "startup-refresh"
+            ? `已完成自动复核，扫描 ${scannedThisRun}/${totalBudget} 个主题，本轮新增 ${keptThisRun} 条。`
+            : `NGA 聚合检索完成，已扫描 ${scannedThisRun}/${totalBudget} 个主题，本轮新增 ${keptThisRun} 条，已保存招募现有 ${collectedSamples.length} 条。`
+        );
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -962,7 +1061,7 @@ export function App() {
     try {
       const result: NgaDetailCollectPayload = await collectNgaSampleDetails(ngaSamples, ngaSettings);
       const merged = await applyNgaSamples(
-        [...ngaSamples, ...result.samples],
+        result.samples,
         `${result.progress.message} 已保存招募现有 ${mergeNgaSamples([...ngaSamples, ...result.samples], NGA_MAX_SAMPLE_STORE_ITEMS).length} 条。`
       );
       setNgaProgress(result.progress);
@@ -1007,7 +1106,7 @@ export function App() {
     });
 
     try {
-      const sessionResult = await openNgaSession(ngaSettings);
+      const sessionResult = await openNgaSession({ ...ngaSettings, windowMode: "normal" });
       setNgaSession(sessionResult);
       setNgaMessage("NGA 窗口已打开。请停留在招募列表或帖子页，工具会按请求间隔检查当前可见页面。");
     } catch (error) {
@@ -1093,7 +1192,7 @@ export function App() {
       setNgaError("");
       let result: NgaCollectPayload;
       try {
-        result = await collectNgaVisibleSamples(ngaSettings);
+        result = await collectNgaVisibleSamples({ ...ngaSettings, cachedSamples: buildNgaCachedTopicIndex(collectedSamples) });
       } catch (error) {
         setNgaProgress((current) => ({
           ...current,
@@ -1114,7 +1213,7 @@ export function App() {
       }
       if (result.samples.length > 0) {
         const sanitized = await applyNgaSamples(
-          [...collectedSamples, ...result.samples],
+          result.samples,
           `已在 NGA 当前可见页面读取到 ${result.samples.length} 条，已保存招募现有 ${mergeNgaSamples([...collectedSamples, ...result.samples], NGA_MAX_SAMPLE_STORE_ITEMS).length} 条。`
         );
         collectedSamples = sanitized;
@@ -1168,7 +1267,7 @@ export function App() {
   }
 
   async function clearNgaSamples() {
-    await applyNgaSamples([], "已清空 NGA 已保存招募。");
+    await applyNgaSamples([], "已清空 NGA 已保存招募。", { replace: true });
     setNgaProgress({
       status: "idle",
       currentUrl: "",
@@ -1296,10 +1395,11 @@ export function App() {
             <NgaPanel
               settings={ngaSettings}
               session={ngaSession}
-              progress={ngaProgress}
-              sampleCount={ngaSamples.length}
-              visibleSampleCount={ngaRows.length}
-              sampleStoreLocation={ngaSampleStoreLocation}
+                progress={ngaProgress}
+                sampleCount={ngaSamples.length}
+                visibleSampleCount={ngaRows.length}
+                pendingRefreshCount={pendingNgaRefreshSamples.length}
+                sampleStoreLocation={ngaSampleStoreLocation}
               report={ngaReport}
               isOpening={isOpeningNga}
               isClearing={isClearingNga}
@@ -1345,99 +1445,31 @@ export function App() {
               ))}
             </select>
           </Field>
-          <Field label="招募大区">
-            <select value={targetAreaId} onChange={(event) => setTargetAreaId(event.target.value)} disabled={!meta}>
-              <option value="">不限大区</option>
-              {meta?.areas.map((area) => (
-                <option value={String(area.AreaID)} key={area.AreaID}>
-                  {area.AreaName}
-                </option>
-              ))}
-              <option value="-1">国际服</option>
-            </select>
-          </Field>
-          <Field label="队伍构成">
-            <select value={teamComposition} onChange={(event) => setTeamComposition(event.target.value)}>
-              <option value="">不限</option>
-              <option value="满编小队">满编小队</option>
-              <option value="轻锐小队">轻锐小队</option>
-              <option value="团队">团队</option>
-              <option value="其他">其他</option>
-            </select>
-          </Field>
-          {teamComposition === "团队" && (
-            <Field label="拉取团队">
-              <select value={officialAlliance} onChange={(event) => setOfficialAlliance(event.target.value as AllianceKey)}>
-                {ALLIANCES.map(([value, label]) => (
-                  <option key={value || "all"} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
-          <Field label="拉取位置">
-            <select value={officialPosition} onChange={(event) => setOfficialPosition(event.target.value)}>
-              <option value="">不限位置</option>
-              {positionOptions.map((position) => (
-                <option value={position} key={position}>
-                  {position}
-                </option>
-              ))}
-            </select>
-          </Field>
         </section>
 
         <section className="panel">
           <SectionTitle icon={<Filter size={16} />} title="招募筛选条件" />
           <Field label="标签/类型">
             <div className="chip-grid compact">
-              {meta?.labels.map((label) => (
+              {tagFilterOptions.map((tag) => (
                 <ToggleChip
-                  key={label.id}
-                  active={filters.selectedLabelIds.includes(label.id)}
-                  label={label.name}
+                  key={tag.id}
+                  active={filters.selectedLabelIds.includes(tag.id)}
+                  label={tag.label}
+                  count={tag.count}
                   onClick={() => {
                     updateFilters({
-                      selectedLabelIds: filters.selectedLabelIds.includes(label.id)
-                        ? filters.selectedLabelIds.filter((id) => id !== label.id)
-                        : [...filters.selectedLabelIds, label.id]
+                      selectedLabelIds: filters.selectedLabelIds.includes(tag.id)
+                        ? filters.selectedLabelIds.filter((id) => id !== tag.id)
+                        : [...filters.selectedLabelIds, tag.id]
                     });
                   }}
                 />
               ))}
             </div>
           </Field>
-          <Field label="进度关键词">
-            <input
-              value={filters.progressText}
-              onChange={(event) => updateFilters({ progressText: event.target.value })}
-              placeholder="例：从0 -清cd"
-            />
-          </Field>
-          <Field label="攻略关键词">
-            <input
-              value={filters.strategyText}
-              onChange={(event) => updateFilters({ strategyText: event.target.value })}
-              placeholder="例：菓子 a -无攻略"
-            />
-          </Field>
-          <Field label="时间关键词">
-            <input
-              value={filters.timeText}
-              onChange={(event) => updateFilters({ timeText: event.target.value })}
-              placeholder="例：晚 周末"
-            />
-          </Field>
-          <Field label="不包含关键词">
-            <input
-              value={filters.excludeText}
-              onChange={(event) => updateFilters({ excludeText: event.target.value })}
-              placeholder="例：保次 代打"
-            />
-          </Field>
           <div className="two-columns">
-            <Field label="开始小时">
+            <Field label="不能早于">
               <input
                 type="number"
                 min="0"
@@ -1447,7 +1479,7 @@ export function App() {
                 placeholder="20"
               />
             </Field>
-            <Field label="结束小时">
+            <Field label="不能晚于">
               <input
                 type="number"
                 min="0"
@@ -1458,6 +1490,17 @@ export function App() {
               />
             </Field>
           </div>
+          <Field label="每日最多小时">
+            <input
+              type="number"
+              min="0.5"
+              max="24"
+              step="0.5"
+              value={filters.dailyMaxHours}
+              onChange={(event) => updateFilters({ dailyMaxHours: event.target.value })}
+              placeholder="例：3"
+            />
+          </Field>
           <Field label="星期">
             <div className="chip-grid compact">
               {DAY_OPTIONS.map(([value, label]) => (
@@ -1484,17 +1527,6 @@ export function App() {
             />
             保留时间不明确的招募
           </label>
-          {teamComposition === "团队" && (
-            <Field label="本地团队">
-              <select value={filters.alliance} onChange={(event) => updateFilters({ alliance: event.target.value as AllianceKey })}>
-                {ALLIANCES.map(([value, label]) => (
-                  <option key={value || "all"} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
           <Field label="空缺位置">
             <div className="chip-grid compact">
               {positionOptions.map((position) => (
@@ -1525,14 +1557,81 @@ export function App() {
               onClear={() => updateFilters({ selectedJobIds: [] })}
             />
           </Field>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={filters.noDuplicateJobs}
-              onChange={(event) => updateFilters({ noDuplicateJobs: event.target.checked })}
-            />
-            避开重复职业
-          </label>
+          <button
+            type="button"
+            className="disclosure-button"
+            aria-expanded={advancedFiltersOpen}
+            onClick={() => setAdvancedFiltersOpen((current) => !current)}
+          >
+            {advancedFiltersOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            高级筛选
+          </button>
+          {advancedFiltersOpen ? (
+            <div className="compact-disclosure">
+              <Field label="进度关键词">
+                <input
+                  value={filters.progressText}
+                  onChange={(event) => updateFilters({ progressText: event.target.value })}
+                  placeholder="例：从0 -清cd"
+                />
+              </Field>
+              <Field label="攻略关键词">
+                <input
+                  value={filters.strategyText}
+                  onChange={(event) => updateFilters({ strategyText: event.target.value })}
+                  placeholder="例：菓子 a -无攻略"
+                />
+              </Field>
+              <Field label="时间关键词">
+                <input
+                  value={filters.timeText}
+                  onChange={(event) => updateFilters({ timeText: event.target.value })}
+                  placeholder="例：晚 周末"
+                />
+              </Field>
+              <Field label="不包含关键词">
+                <input
+                  value={filters.excludeText}
+                  onChange={(event) => updateFilters({ excludeText: event.target.value })}
+                  placeholder="例：保次 代打"
+                />
+              </Field>
+              <Field label="大区偏好">
+                <select
+                  value={filters.areaPreferenceId}
+                  onChange={(event) => updateFilters({ areaPreferenceId: event.target.value })}
+                  disabled={!meta}
+                >
+                  <option value="">不限大区</option>
+                  {meta?.areas.map((area) => (
+                    <option value={String(area.AreaID)} key={area.AreaID}>
+                      {area.AreaName}
+                    </option>
+                  ))}
+                  <option value="-1">国际服</option>
+                </select>
+              </Field>
+              {teamComposition === "团队" && (
+                <Field label="团队偏好">
+                  <select value={filters.alliance} onChange={(event) => updateFilters({ alliance: event.target.value as AllianceKey })}>
+                    {ALLIANCES.map(([value, label]) => (
+                      <option key={value || "all"} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={filters.noDuplicateJobs}
+                  onChange={(event) => updateFilters({ noDuplicateJobs: event.target.checked })}
+                />
+                避开重复职业
+              </label>
+            </div>
+          ) : null}
           <button className="secondary-button full" onClick={resetLocalFilters}>
             <RotateCcw size={15} />
             清空筛选
@@ -1697,7 +1796,17 @@ export function App() {
           </div>
         </header>
 
-        <StatusStrip payload={payload} visibleCount={filtered.rows.length} isLoading={isLoading} />
+        <AggregateStatusStrip
+          sourceLabel={selectedSourceLabel}
+          isLoading={isLoading || isCollectingNga}
+          officialFetched={payload?.fetched ?? 0}
+          ngaProgress={ngaProgress}
+          ngaSampleCount={ngaSamples.length}
+          visibleCount={filtered.rows.length}
+          pendingRefreshCount={pendingNgaRefreshSamples.length}
+          latestCheckedAt={latestNgaCheckedAt}
+          error={fetchError || ngaError}
+        />
         <UpdateStatusBanner
           info={updateInfo}
           provider={updateProvider}
@@ -1719,11 +1828,28 @@ export function App() {
           </div>
         )}
 
-        <div className="result-list">
-          {filtered.rows.map((row) => (
-            <RecruitCard key={row.id} row={row} meta={meta} alliance={filters.alliance} />
-          ))}
-        </div>
+        {filtered.rows.length > 0 ? (
+          <Virtuoso<RecruitRow>
+            useWindowScroll
+            increaseViewportBy={{ top: 600, bottom: 900 }}
+            data={filtered.rows}
+            computeItemKey={(_, row) => getRecruitRenderKey(row)}
+            itemContent={(_, row) => {
+              const rowKey = getRecruitRenderKey(row);
+              return (
+                <div className="result-list-item" data-row-id={rowKey}>
+                  <RecruitCard
+                    row={row}
+                    meta={meta}
+                    alliance={filters.alliance}
+                    isUpdated={updatedRowKeys.has(rowKey)}
+                    isSoftClosed={softClosedRowKeys.has(rowKey) || Boolean(row.sourceMeta?.isClosed)}
+                  />
+                </div>
+              );
+            }}
+          />
+        ) : null}
 
         {combinedRows.length > 0 && filtered.rows.length === 0 && (
           <div className="empty-state">
@@ -1755,10 +1881,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function ToggleChip({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+function ToggleChip({ active, label, count, onClick }: { active: boolean; label: string; count?: number; onClick: () => void }) {
   return (
     <button type="button" className={active ? "chip active" : "chip"} onClick={onClick}>
-      {label}
+      <span>{label}</span>
+      {count !== undefined ? <em>{count}</em> : null}
     </button>
   );
 }
@@ -1787,12 +1914,63 @@ function AppMark() {
   );
 }
 
+function AggregateStatusStrip({
+  sourceLabel,
+  isLoading,
+  officialFetched,
+  ngaProgress,
+  ngaSampleCount,
+  visibleCount,
+  pendingRefreshCount,
+  latestCheckedAt,
+  error
+}: {
+  sourceLabel: string;
+  isLoading: boolean;
+  officialFetched: number;
+  ngaProgress: NgaCollectionProgress;
+  ngaSampleCount: number;
+  visibleCount: number;
+  pendingRefreshCount: number;
+  latestCheckedAt: string;
+  error: string;
+}) {
+  const tone = error ? "error" : isLoading || ngaProgress.status === "collecting" ? "active" : ngaProgress.status;
+  const latestText = latestCheckedAt ? formatDateTime(latestCheckedAt) : "暂无";
+  const progressValue = ngaProgress.maxItems > 0 ? Math.min(100, Math.round((ngaProgress.collected / ngaProgress.maxItems) * 100)) : 0;
+  const message =
+    error ||
+    (isLoading
+      ? `${ngaProgress.message || "正在按所选来源读取招募。"} · 新增 ${ngaProgress.added ?? 0} · 待刷新 ${ngaProgress.pendingRefresh ?? pendingRefreshCount} · 已复核 ${ngaProgress.checked ?? 0}`
+      : ngaProgress.message || "本地已保存招募会先展示，聚合检索会增量更新。");
+  return (
+    <div className={`aggregate-status ${tone}`}>
+      <div>
+        <strong>{sourceLabel}</strong>
+        <span>{message}</span>
+        {isLoading || ngaProgress.status === "collecting" ? (
+          <div className="aggregate-progress-bar" aria-hidden="true">
+            <i style={{ width: `${progressValue}%` }} />
+          </div>
+        ) : null}
+      </div>
+      <div className="aggregate-status-metrics">
+        <span>本地已保存 {ngaSampleCount + officialFetched}</span>
+        <span>当前命中 {visibleCount}</span>
+        <span>待刷新 {pendingRefreshCount}</span>
+        <span>最近复核 {latestText}</span>
+      </div>
+    </div>
+  );
+}
+
 function NgaPanel({
   settings,
   session,
   progress,
   sampleCount,
   visibleSampleCount,
+  pendingRefreshCount,
   sampleStoreLocation,
   report,
   isOpening,
@@ -1819,6 +1997,7 @@ function NgaPanel({
   progress: NgaCollectionProgress;
   sampleCount: number;
   visibleSampleCount: number;
+  pendingRefreshCount: number;
   sampleStoreLocation: string;
   report: NgaSampleAnalysisReport | null;
   isOpening: boolean;
@@ -1881,11 +2060,9 @@ function NgaPanel({
         <div className="inline-value compact-value">{sampleCount} 条已保存招募</div>
       </div>
 
-      <div className={`nga-progress ${progress.status}`}>
-        <strong>{progress.message}</strong>
-        <span>
-          本轮：{progress.collected}/{progress.maxItems || settings.maxItems} · 最近更新：{latestTime}
-        </span>
+      <div className="inline-value compact-value">
+        本轮 {progress.collected}/{progress.maxItems || settings.maxItems}
+        <span>待复核 {pendingRefreshCount} · 最近更新 {latestTime}</span>
       </div>
 
       <div className="nga-action-grid compact-actions">
@@ -1901,7 +2078,7 @@ function NgaPanel({
         ) : null}
       </div>
 
-      {message ? <div className="mini-notice success">{message}</div> : null}
+      {message && isCollecting ? <div className="mini-notice success">{message}</div> : null}
       {error ? <div className="mini-notice error">{error}</div> : null}
 
       <button
@@ -1919,6 +2096,15 @@ function NgaPanel({
           <label className="check-row">
             <input type="checkbox" checked={settings.keepLogin} onChange={(event) => onKeepLoginChange(event.target.checked)} />
             保持本机网页会话
+          </label>
+
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={settings.autoRefreshOnStart}
+              onChange={(event) => onSettingsChange({ autoRefreshOnStart: event.target.checked })}
+            />
+            启动后自动复核已保存招募
           </label>
 
           <Field label="NGA 招募板地址">
@@ -1947,7 +2133,7 @@ function NgaPanel({
                 onChange={(event) => onSettingsChange({ requestIntervalMs: Number(event.target.value) * 1000 })}
               />
             </Field>
-            <Field label="本次最多读取">
+            <Field label="本次最多扫描">
               <input
                 type="number"
                 min="1"
@@ -1957,6 +2143,38 @@ function NgaPanel({
               />
             </Field>
           </div>
+
+          <div className="two-columns">
+            <Field label="复核间隔(小时)">
+              <input
+                type="number"
+                min="1"
+                max="168"
+                value={settings.refreshIntervalHours}
+                onChange={(event) => onSettingsChange({ refreshIntervalHours: Number(event.target.value) })}
+              />
+            </Field>
+            <Field label="聚合窗口">
+              <select
+                value={settings.windowMode}
+                onChange={(event) => onSettingsChange({ windowMode: event.target.value as NgaCollectionSettings["windowMode"] })}
+              >
+                <option value="minimized">最小化</option>
+                <option value="normal">正常显示</option>
+              </select>
+            </Field>
+          </div>
+
+          <Field label="最近活跃天数">
+            <input
+              type="number"
+              min="0"
+              max="180"
+              value={settings.recentActiveDays}
+              onChange={(event) => onSettingsChange({ recentActiveDays: Number(event.target.value) })}
+              placeholder="14；0 表示不限"
+            />
+          </Field>
 
           <label className="check-row">
             <input
@@ -2263,11 +2481,15 @@ function Notice({ tone, text }: { tone: "warning" | "error"; text: string }) {
 function RecruitCard({
   row,
   meta,
-  alliance
+  alliance,
+  isUpdated = false,
+  isSoftClosed = false
 }: {
   row: RecruitRow;
   meta: MetaPayload | null;
   alliance: "" | AllianceKey;
+  isUpdated?: boolean;
+  isSoftClosed?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<RecruitDetail | null>(null);
@@ -2276,16 +2498,17 @@ function RecruitCard({
   const source = row.source ?? "official";
   const openPositions = getOpenPositions(row, alliance);
   const ngaDisplayJobGroups = getNgaDisplayJobGroups(row, meta);
-  const ngaKindLabel = formatNgaRecruitKind(row.sourceMeta?.recruitKind);
-  const jobSideLabel = source === "nga" && row.sourceMeta?.recruitKind === "seeking" ? "可用职业" : "需求职业";
-  const positionSideLabel = source === "nga" && row.sourceMeta?.recruitKind === "seeking" ? "可用位置" : "空缺位置";
+  const recruitKind = getRecruitKind(row);
+  const ngaKindLabel = formatNgaRecruitKind(recruitKind);
+  const jobSideLabel = recruitKind === "seeking" ? "可用职业" : "需求职业";
+  const positionSideLabel = recruitKind === "seeking" ? "可用位置" : "空缺位置";
   const sourceLabel = formatRecruitSourceLabel(source);
   const sidePositionLabels = source === "nga" ? formatNgaPositionRequirementLabels(row.parsedFields ?? {}, row.sourceMeta?.recruitKind) : openPositions;
   const timeText = formatRecruitTimeForDisplay(row.fb_time);
   const dailyDuration = getRecruitDailyDuration(row);
   const timeHintParts = [dailyDuration, row.parsedFields?.timeSupplement].filter(Boolean);
   const timeHint = timeHintParts.length ? timeHintParts.join(" · ") : getRecruitTimeHint(row.fb_time, timeText);
-  const visibleNgaTags = source === "nga" ? getVisibleNgaTags(row) : [];
+  const visibleTags = getVisibleRecruitTags(row);
   const cardTitle = source === "nga" ? row.parsedFields?.dungeon || "未识别副本" : row.fb_name;
   const ngaSubtitleTitle = cleanNgaDisplayText(row.sourceTitle) || "NGA 原帖";
   const ngaGroupName = cleanNgaDisplayText(row.group_name) || "未知队伍";
@@ -2332,7 +2555,8 @@ function RecruitCard({
   }
 
   return (
-    <article className={`recruit-card source-${source}`}>
+    <article className={`recruit-card source-${source}${isUpdated ? " updated" : ""}${isSoftClosed ? " soft-closed" : ""}`}>
+      {isUpdated ? <div className="card-update-badge">刚刚更新</div> : null}
       <div className="card-main">
         <div className="card-heading">
           <div>
@@ -2383,14 +2607,9 @@ function RecruitCard({
         </div>
 
         <div className="tag-row">
-          {visibleNgaTags.map((tag) => (
+          {visibleTags.map((tag) => (
             <span className={`soft-tag ${getNgaTagClass(tag)}`} key={tag}>
               {tag}
-            </span>
-          ))}
-          {row.labelInfo?.map((label) => (
-            <span className="soft-tag" key={label.id}>
-              {label.name}
             </span>
           ))}
         </div>
@@ -2845,8 +3064,8 @@ function getRecruitDailyDuration(row: RecruitRow | RecruitDetail): string {
   return formatRecruitDailyDuration(sourceText, { inferFromRanges: true });
 }
 
-function getVisibleNgaTags(row: RecruitRow): string[] {
-  const tags = [...(row.parseTags ?? [])];
+function getVisibleRecruitTags(row: RecruitRow): string[] {
+  const tags = deriveRecruitTags(row);
   if (row.parseWarnings?.some((warning) => /低置信|人工确认/.test(warning))) {
     tags.push("需看原文确认");
   }
@@ -2858,6 +3077,10 @@ function getVisibleNgaTags(row: RecruitRow): string[] {
 
 function isImportantNgaTag(tag: string): boolean {
   return Boolean(getNgaTagClass(tag)) || /需看原文确认|已关闭|疑似噪音|低置信/.test(tag);
+}
+
+function mergeDisplayValues(...values: Array<string | undefined>): string {
+  return uniqueDisplayItems(values.flatMap((value) => (value ? value.split(/[、,，;；]/) : []))).join("、");
 }
 
 function buildNgaTeamDetailItems(row: RecruitRow | RecruitDetail): Array<{ label: string; value: string }> {
@@ -3030,15 +3253,81 @@ function isOfficialSeekingRow(row: RecruitRow): boolean {
   return /求职|玩家求职/.test(labelText);
 }
 
+function enrichNgaSampleForCache(sample: NgaSample): NgaSample {
+  const sanitized = sanitizeNgaSample(sample);
+  const now = new Date().toISOString();
+  const signal = classifyNgaSample(sanitized);
+  return {
+    ...sanitized,
+    lastSeenAt: sanitized.lastSeenAt || now,
+    lastCheckedAt: sanitized.lastCheckedAt || now,
+    detailFetchedAt: sanitized.body ? sanitized.detailFetchedAt || now : sanitized.detailFetchedAt,
+    closedAt: signal.isClosed ? sanitized.closedAt || now : sanitized.closedAt
+  };
+}
+
+function getNgaRenderKey(sample: NgaSample): string {
+  return `nga-${getNgaSampleKey(sample) || sample.topicId || sample.url || sample.title}`;
+}
+
+function getRecruitRenderKey(row: RecruitRow): string {
+  if ((row.source ?? "official") === "nga") {
+    return row.uuid || `nga-${row.sourceMeta?.topicId || row.sourceUrl || row.sourceTitle || row.id}`;
+  }
+  return row.uuid || `official-${row.id}`;
+}
+
+function getLatestNgaCacheTime(samples: NgaSample[]): string {
+  const latest = samples
+    .flatMap((sample) => [sample.lastCheckedAt, sample.detailFetchedAt, sample.lastSeenAt])
+    .map((value) => Date.parse(value || ""))
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a)[0];
+  return latest ? new Date(latest).toISOString() : "";
+}
+
+function captureResultScrollAnchor(): { key: string; top: number } | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-row-id]"));
+  const anchor = elements.find((element) => element.getBoundingClientRect().bottom > 0);
+  if (!anchor) {
+    return null;
+  }
+  return {
+    key: anchor.dataset.rowId ?? "",
+    top: anchor.getBoundingClientRect().top
+  };
+}
+
+function restoreResultScrollAnchor(anchor: { key: string; top: number } | null) {
+  if (!anchor?.key || typeof window === "undefined") {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    const target = document.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(anchor.key)}"]`);
+    if (!target) {
+      return;
+    }
+    const delta = target.getBoundingClientRect().top - anchor.top;
+    if (Math.abs(delta) > 1) {
+      window.scrollBy(0, delta);
+    }
+  });
+}
+
 function ngaSampleToRecruitRow(sample: NgaSample, index: number): RecruitRow {
   const signal = classifyNgaSample(sample);
   const fields = signal.parsedFields;
   const title = cleanNgaDisplayText(sample.title);
   const author = cleanNgaDisplayText(sample.author);
   const teamType = cleanNgaDisplayText(fields.teamType);
+  const sampleKey = getNgaSampleKey(sample) || sample.topicId || sample.url || String(index);
+  const numericTopicId = Number.parseInt(sample.topicId, 10);
   return {
-    id: -1_000_000 - index,
-    uuid: `nga-${sample.topicId || index}`,
+    id: Number.isSafeInteger(numericTopicId) && numericTopicId > 0 ? -numericTopicId : -1_000_000 - index,
+    uuid: `nga-${sampleKey}`,
     source: "nga",
     sourceUrl: sample.url,
     sourceTitle: title,
@@ -3054,8 +3343,8 @@ function ngaSampleToRecruitRow(sample: NgaSample, index: number): RecruitRow {
       platform: "nga",
       forumId: sample.forumId,
       topicId: sample.topicId,
-      importedAt: new Date().toISOString(),
-      isClosed: signal.isClosed,
+      importedAt: sample.lastSeenAt || sample.detailFetchedAt || sample.lastCheckedAt || new Date().toISOString(),
+      isClosed: signal.isClosed || Boolean(sample.closedAt),
       isNoise: signal.isNoise,
       recruitKind: signal.recruitKind,
       bodyCollected: Boolean(sample.body)
@@ -3067,7 +3356,7 @@ function ngaSampleToRecruitRow(sample: NgaSample, index: number): RecruitRow {
     fb_name: fields.dungeon || "未识别副本",
     fb_time: fields.time || "",
     team_composition: "满编小队",
-    progress: fields.progress || fields.clearGoal || "",
+    progress: mergeDisplayValues(fields.progress, fields.clearGoal),
     strategy: fields.strategy || "",
     team_position: null,
     need_job: []
@@ -3286,10 +3575,7 @@ function Detail({ label, value, hint }: { label: string; value: string; hint?: s
 function buildRecruitQuery(input: {
   fbName: string;
   fbType: string;
-  targetAreaId: string;
   teamComposition: string;
-  officialPosition: string;
-  officialAlliance: "" | AllianceKey;
 }): RecruitQuery {
   const query: RecruitQuery = {
     fb_name: input.fbName
@@ -3297,20 +3583,8 @@ function buildRecruitQuery(input: {
   if (input.fbType) {
     query.fb_type = input.fbType;
   }
-  if (input.targetAreaId) {
-    query.target_area_id = input.targetAreaId;
-  }
   if (input.teamComposition) {
     query.team_composition = input.teamComposition;
-  }
-  if (input.officialPosition) {
-    query.position = input.officialPosition;
-  }
-  if (input.teamComposition === "团队" && input.officialAlliance) {
-    query.son_team_key = input.officialAlliance;
-    if (input.officialPosition) {
-      query.son_team_position = input.officialPosition;
-    }
   }
   return query;
 }

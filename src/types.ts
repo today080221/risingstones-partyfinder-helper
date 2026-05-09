@@ -6,6 +6,7 @@ export type NgaLoginStatus = "unknown" | "not_logged_in" | "logged_in";
 export type NgaFilterMode = "strict" | "balanced" | "loose" | "unrecognized";
 export type NgaRecruitViewMode = "teams" | "seeking" | "all";
 export type NgaCollectionStatus = "idle" | "opening" | "collecting" | "cancelled" | "completed" | "error";
+export type NgaWindowMode = "normal" | "minimized";
 
 export interface OfficialApiResponse<T> {
   code?: number;
@@ -197,8 +198,15 @@ export interface NgaSample {
   url: string;
   author: string;
   publishedAt: string;
+  updatedAt: string;
   forumId: string;
   topicId: string;
+  lastCheckedAt?: string;
+  lastSeenAt?: string;
+  detailFetchedAt?: string;
+  contentHash?: string;
+  closedAt?: string;
+  sourceBoardUrl?: string;
 }
 
 export interface NgaSampleCandidate {
@@ -227,10 +235,29 @@ export interface NgaCollectionSettings {
   startUrl: string;
   selectedBoardUrls: string[];
   allowMultipleBoards: boolean;
+  autoRefreshOnStart: boolean;
+  refreshIntervalHours: number;
+  windowMode: NgaWindowMode;
   requestIntervalMs: number;
   maxItems: number;
+  recentActiveDays: number;
   filterMode: NgaFilterMode;
   includeDetails: boolean;
+}
+
+export interface NgaCachedTopic {
+  title?: string;
+  url: string;
+  topicId: string;
+  updatedAt?: string;
+  lastCheckedAt?: string;
+  hasBody: boolean;
+  contentHash?: string;
+  sourceBoardUrl?: string;
+}
+
+export interface NgaCollectRequestSettings extends Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs" | "includeDetails" | "recentActiveDays" | "refreshIntervalHours"> {
+  cachedSamples?: NgaCachedTopic[];
 }
 
 export interface NgaCollectionProgress {
@@ -239,6 +266,11 @@ export interface NgaCollectionProgress {
   collected: number;
   maxItems: number;
   message: string;
+  added?: number;
+  updated?: number;
+  checked?: number;
+  cacheHits?: number;
+  pendingRefresh?: number;
   startedAt?: string;
   finishedAt?: string;
 }
@@ -354,7 +386,9 @@ export interface LocalFilterState {
   excludeText: string;
   timeStart: string;
   timeEnd: string;
+  dailyMaxHours: string;
   timeDays: string[];
+  areaPreferenceId: string;
   selectedLabelIds: string[];
   selectedJobIds: string[];
   noDuplicateJobs: boolean;

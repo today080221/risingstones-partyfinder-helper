@@ -3,6 +3,7 @@ import type {
   GeoIpPayload,
   MetaPayload,
   NgaClearSessionPayload,
+  NgaCachedTopic,
   NgaCollectPayload,
   NgaCollectionSettings,
   NgaCollectionProgress,
@@ -116,7 +117,7 @@ export async function fetchNgaSessionStatus(signal?: AbortSignal): Promise<NgaSe
 }
 
 export async function openNgaSession(
-  settings: Pick<NgaCollectionSettings, "keepLogin" | "startUrl">,
+  settings: Pick<NgaCollectionSettings, "keepLogin" | "startUrl"> & Partial<Pick<NgaCollectionSettings, "windowMode">>,
   signal?: AbortSignal
 ): Promise<NgaOpenSessionPayload> {
   if (!isTauriRuntime()) {
@@ -126,7 +127,8 @@ export async function openNgaSession(
     "risingstones_nga_open_session",
     {
       keepLogin: settings.keepLogin,
-      startUrl: settings.startUrl
+      startUrl: settings.startUrl,
+      windowMode: settings.windowMode ?? "normal"
     },
     signal
   );
@@ -160,7 +162,9 @@ export async function fetchNgaVisiblePageStatus(signal?: AbortSignal): Promise<N
 }
 
 export async function collectNgaVisibleSamples(
-  settings: Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs" | "includeDetails">,
+  settings: Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs" | "includeDetails" | "recentActiveDays" | "refreshIntervalHours"> & {
+    cachedSamples?: NgaCachedTopic[];
+  },
   signal?: AbortSignal
 ): Promise<NgaCollectPayload> {
   if (!isTauriRuntime()) {
@@ -171,7 +175,10 @@ export async function collectNgaVisibleSamples(
     {
       maxItems: settings.maxItems,
       requestIntervalMs: settings.requestIntervalMs,
-      includeDetails: settings.includeDetails
+      includeDetails: settings.includeDetails,
+      recentActiveDays: settings.recentActiveDays,
+      refreshIntervalHours: settings.refreshIntervalHours,
+      cachedSamples: settings.cachedSamples ?? []
     },
     signal
   );
