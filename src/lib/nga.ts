@@ -5231,6 +5231,42 @@ function canonicalizeNgaRecruitBoardUrl(url: URL): string | null {
   return null;
 }
 
+export function isSameNgaTargetUrl(currentUrl: string | undefined, expectedUrl: string): boolean {
+  try {
+    const current = new URL(currentUrl || "");
+    const expected = new URL(expectedUrl);
+    const currentFile = current.pathname.toLowerCase().split("/").pop();
+    const expectedFile = expected.pathname.toLowerCase().split("/").pop();
+    if (currentFile !== expectedFile) {
+      return false;
+    }
+    if (expectedFile === "thread.php") {
+      return (
+        current.searchParams.get("stid") === expected.searchParams.get("stid") &&
+        normalizeNgaBoardPage(current.searchParams.get("page")) === normalizeNgaBoardPage(expected.searchParams.get("page"))
+      );
+    }
+    if (expectedFile === "read.php") {
+      return current.searchParams.get("tid") === expected.searchParams.get("tid");
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function normalizeNgaBoardPage(value: string | null): string {
+  const raw = value?.trim();
+  if (!raw) {
+    return "1";
+  }
+  const page = Number(raw);
+  if (!Number.isFinite(page) || page < 1) {
+    return raw;
+  }
+  return String(Math.trunc(page));
+}
+
 function isNgaHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
   return host === "bbs.nga.cn" || host === "nga.178.com" || host === "ngabbs.com" || host.endsWith(".nga.cn");

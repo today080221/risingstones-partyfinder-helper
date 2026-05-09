@@ -12,6 +12,7 @@ import {
   normalizeNgaCacheReviewSamples,
   normalizeNgaCollectionSettings,
   resolveKeepLoginPreference,
+  isSameNgaTargetUrl,
   mergeNgaSamples,
   sanitizeNgaSample,
   sanitizeNgaSamples,
@@ -136,6 +137,48 @@ describe("nga collection controls", () => {
     expect(normalizeNgaCollectionSettings({ startUrl: "https://example.com/" }).startUrl).toBe(
       DEFAULT_NGA_COLLECTION_SETTINGS.startUrl
     );
+  });
+
+  it("requires the expected board page before treating a reused NGA board as ready", () => {
+    expect(
+      isSameNgaTargetUrl(
+        "https://bbs.nga.cn/thread.php?stid=44366746",
+        "https://bbs.nga.cn/thread.php?stid=44366746"
+      )
+    ).toBe(true);
+    expect(
+      isSameNgaTargetUrl(
+        "https://bbs.nga.cn/thread.php?stid=44366746&page=1&rand=321",
+        "https://bbs.nga.cn/thread.php?stid=44366746"
+      )
+    ).toBe(true);
+    expect(
+      isSameNgaTargetUrl(
+        "https://bbs.nga.cn/thread.php?stid=44366746&page=3",
+        "https://bbs.nga.cn/thread.php?stid=44366746"
+      )
+    ).toBe(false);
+    expect(
+      isSameNgaTargetUrl(
+        "https://bbs.nga.cn/thread.php?stid=44366746&page=3",
+        "https://bbs.nga.cn/thread.php?stid=44366746&page=3"
+      )
+    ).toBe(true);
+  });
+
+  it("still matches NGA detail pages by topic id", () => {
+    expect(
+      isSameNgaTargetUrl(
+        "https://bbs.nga.cn/read.php?tid=46723623&page=2",
+        "https://bbs.nga.cn/read.php?tid=46723623"
+      )
+    ).toBe(true);
+    expect(
+      isSameNgaTargetUrl(
+        "https://bbs.nga.cn/read.php?tid=46723624",
+        "https://bbs.nga.cn/read.php?tid=46723623"
+      )
+    ).toBe(false);
   });
 
   it("stops when cancelled or maximum collection count is reached", () => {

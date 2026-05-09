@@ -62,6 +62,7 @@ import {
   getNgaSampleKey,
   getNgaSamplesPendingRefresh,
   isNgaSampleArchived,
+  isSameNgaTargetUrl,
   isNgaSampleSoftClosed,
   mergeNgaSamples,
   mergeNgaSamplesWithDiff,
@@ -1104,27 +1105,6 @@ export function App() {
       await sleep(interval);
     }
     setNgaError(`${boardLabel} 仍停留在继续浏览页或未回到招募板，已跳过本地区。`);
-    return false;
-  }
-
-  function isSameNgaTargetUrl(currentUrl: string | undefined, expectedUrl: string): boolean {
-    try {
-      const current = new URL(currentUrl || "");
-      const expected = new URL(expectedUrl);
-      const currentFile = current.pathname.toLowerCase().split("/").pop();
-      const expectedFile = expected.pathname.toLowerCase().split("/").pop();
-      if (currentFile !== expectedFile) {
-        return false;
-      }
-      if (expectedFile === "thread.php") {
-        return current.searchParams.get("stid") === expected.searchParams.get("stid");
-      }
-      if (expectedFile === "read.php") {
-        return current.searchParams.get("tid") === expected.searchParams.get("tid");
-      }
-    } catch {
-      return false;
-    }
     return false;
   }
 
