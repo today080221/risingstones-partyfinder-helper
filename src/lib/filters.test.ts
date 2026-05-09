@@ -24,6 +24,7 @@ const meta: MetaPayload = {
       { id: "2", value: "战士", job_type: "防护职业" },
       { id: "5", value: "治疗职业", job_type: "职能分类" },
       { id: "10", value: "白魔法师", job_type: "治疗职业" },
+      { id: "11", value: "占星术士", job_type: "治疗职业" },
       { id: "12", value: "学者", job_type: "治疗职业" },
       { id: "13", value: "贤者", job_type: "治疗职业" },
       { id: "20", value: "近战职业", job_type: "职能分类" },
@@ -39,6 +40,7 @@ const meta: MetaPayload = {
       "2": { id: "2", value: "战士", job_type: "防护职业" },
       "5": { id: "5", value: "治疗职业", job_type: "职能分类" },
       "10": { id: "10", value: "白魔法师", job_type: "治疗职业" },
+      "11": { id: "11", value: "占星术士", job_type: "治疗职业" },
       "12": { id: "12", value: "学者", job_type: "治疗职业" },
       "13": { id: "13", value: "贤者", job_type: "治疗职业" },
       "20": { id: "20", value: "近战职业", job_type: "职能分类" },
@@ -51,7 +53,7 @@ const meta: MetaPayload = {
     },
     childIdsByCategoryId: {
       "1": ["2"],
-      "5": ["10", "12", "13"],
+      "5": ["10", "11", "12", "13"],
       "20": ["21"],
       "22": ["23"],
       "24": ["25"],
@@ -331,6 +333,26 @@ describe("job and position filters", () => {
     expect(jobCanEnter(["10"], row.need_job, meta.jobMeta, { row, noDuplicateJobs: true })).toBe(false);
     expect(jobCanEnter(["12"], row.need_job, meta.jobMeta, { row, noDuplicateJobs: true })).toBe(true);
     expect(jobCanEnter(["10", "12"], row.need_job, meta.jobMeta, { row, noDuplicateJobs: true })).toBe(true);
+  });
+
+  it("requires exact NGA vacancy jobs before falling back to healer role positions", () => {
+    const row = recruit({
+      source: "nga",
+      sourceMeta: { platform: "nga", recruitKind: "recruit" },
+      parsedFields: {
+        positions: ["H2"],
+        jobs: ["占星术士", "贤者"],
+        vacancySlots: {
+          H2: ["占星术士", "贤者"]
+        }
+      },
+      need_job: []
+    });
+
+    expect(jobCanEnter(["10"], row.need_job, meta.jobMeta, { row })).toBe(false);
+    expect(jobCanEnter(["11"], row.need_job, meta.jobMeta, { row })).toBe(true);
+    expect(jobCanEnter(["13"], row.need_job, meta.jobMeta, { row })).toBe(true);
+    expect(jobCanEnter(["5"], row.need_job, meta.jobMeta, { row })).toBe(true);
   });
 });
 

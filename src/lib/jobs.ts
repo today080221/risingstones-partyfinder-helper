@@ -76,9 +76,13 @@ export function jobCanEnter(
     if (jobName && ngaExcludedJobs.has(jobName)) {
       return false;
     }
+    const matchesNgaAcceptedJob = Boolean(jobName) && ngaAcceptedJobs.has(jobName);
+    if (isNgaJobConstrainedByConcreteEvidence(id, options.row, jobMeta, options.alliance ?? "", ngaAcceptedJobs)) {
+      return matchesNgaAcceptedJob;
+    }
     return (
       acceptedCandidates.has(id) ||
-      (Boolean(jobName) && ngaAcceptedJobs.has(jobName)) ||
+      matchesNgaAcceptedJob ||
       jobMatchesOpenPosition(id, options.row, jobMeta, options.alliance ?? "")
     );
   });
@@ -240,6 +244,40 @@ function jobMatchesOpenPosition(
   return openPositions.some((position) => acceptedPositions.has(position));
 }
 
+function isNgaJobConstrainedByConcreteEvidence(
+  jobId: string,
+  row: RecruitRow | undefined,
+  jobMeta: NormalizedJobMeta,
+  alliance: "" | AllianceKey,
+  acceptedJobNames: Set<string>
+): boolean {
+  if (!row || row.source !== "nga" || acceptedJobNames.size === 0) {
+    return false;
+  }
+
+  const selectedPositions = positionsForJob(jobId, jobMeta);
+  const matchingOpenPositions = getOpenPositions(row, alliance)
+    .map((position) => position.split("-").at(-1) ?? position)
+    .filter((position) => selectedPositions.has(position));
+  if (matchingOpenPositions.length === 0) {
+    return false;
+  }
+
+  const vacancySlots = row.parsedFields?.vacancySlots ?? {};
+  if (matchingOpenPositions.some((position) => (vacancySlots[position as PositionKey] ?? []).length > 0)) {
+    return true;
+  }
+
+  return [...acceptedJobNames].some((jobName) => {
+    const acceptedJobId = findJobIdByName(jobName, jobMeta);
+    if (!acceptedJobId) {
+      return false;
+    }
+    const acceptedPositions = positionsForJob(acceptedJobId, jobMeta);
+    return matchingOpenPositions.some((position) => acceptedPositions.has(position));
+  });
+}
+
 function positionsForJob(jobId: string, jobMeta: NormalizedJobMeta): Set<string> {
   const job = jobMeta.jobsById[jobId];
   const role = getJobRole(job);
@@ -281,7 +319,12 @@ function getNgaAcceptedJobNames(row: RecruitRow): Set<string> {
     return new Set();
   }
   const jobs =
-    row.sourceMeta?.recruitKind === "seeking" ? row.parsedFields?.playerAvailableJobs : row.parsedFields?.jobs;
+    row.sourceMeta?.recruitKind === "seeking"
+      ? row.parsedFields?.playerAvailableJobs
+      : [
+          ...(row.parsedFields?.jobs ?? []),
+          ...(Object.values(row.parsedFields?.vacancySlots ?? {}).flatMap((values) => values ?? []))
+        ];
   return new Set(jobs ?? []);
 }
 
