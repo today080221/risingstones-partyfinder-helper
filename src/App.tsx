@@ -21,7 +21,7 @@ import {
   XCircle
 } from "lucide-react";
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
 import {
   checkUpdate,
@@ -65,6 +65,7 @@ import {
   mergeNgaSamplesWithDiff,
   NGA_MAX_SAMPLE_STORE_ITEMS,
   NGA_RECRUIT_BOARD_URLS,
+  normalizeNgaCacheReviewSamples,
   normalizeNgaCollectionSettings,
   resolveKeepLoginPreference,
   sanitizeNgaSample,
@@ -186,6 +187,8 @@ export function App() {
   const [isAutoCollectArmed, setIsAutoCollectArmed] = useState(false);
   const [filters, setFilters] = useState<LocalFilterState>(initialState.filters);
   const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
+  const [sourcePanelOpen, setSourcePanelOpen] = useState(true);
+  const [tagFiltersExpanded, setTagFiltersExpanded] = useState(false);
   const [jobSearch, setJobSearch] = useState("");
   const [appVersion, setAppVersion] = useState<AppVersionPayload | null>(null);
   const [geoInfo, setGeoInfo] = useState<GeoIpPayload | null>(null);
@@ -247,13 +250,22 @@ export function App() {
     const controller = new AbortController();
     loadNgaSamples(controller.signal)
       .then((payload) => {
-        const samples = mergeNgaSamples(payload.samples, NGA_MAX_SAMPLE_STORE_ITEMS);
+        const loadedSamples = mergeNgaSamples(payload.samples, NGA_MAX_SAMPLE_STORE_ITEMS);
+        const samples = normalizeNgaCacheReviewSamples(loadedSamples, NGA_MAX_SAMPLE_STORE_ITEMS);
+        const patchedCacheMetadata = samples.some((sample, index) => sample.closedAt !== loadedSamples[index]?.closedAt);
         setNgaSamples(samples);
         setSoftClosedRowKeys(new Set(samples.filter(isNgaSampleSoftClosed).map((sample) => getNgaRenderKey(sample))));
         setNgaSampleStoreLocation(payload.dataLocation);
         if (samples.length > 0) {
           setNgaReport(analyzeNgaSamples(samples));
           setNgaMessage(payload.message);
+        }
+        if (patchedCacheMetadata) {
+          void saveNgaSamples(samples)
+            .then((saved) => setNgaSampleStoreLocation(saved.dataLocation))
+            .catch((error: Error) => {
+              setNgaError(`NGA 已保存招募元数据补齐失败：${error.message}`);
+            });
         }
       })
       .catch((error: Error) => {
@@ -403,6 +415,17 @@ export function App() {
     }
     return sourceFilters.map((source) => SOURCE_OPTIONS.find(([value]) => value === source)?.[1] ?? source).join(" + ") || "未选择来源";
   }, [sourceFilters]);
+  const selectedViewLabel = useMemo(
+    () => NGA_RECRUIT_VIEW_OPTIONS.find(([value]) => value === filters.ngaRecruitView)?.[1] ?? "队伍招募",
+    [filters.ngaRecruitView]
+  );
+  const selectedNgaBoardLabels = useMemo(
+    () =>
+      ngaSettings.selectedBoardUrls.map(
+        (url) => NGA_RECRUIT_BOARD_PRESETS.find(([presetUrl]) => presetUrl === url)?.[1] ?? "自定义"
+      ),
+    [ngaSettings.selectedBoardUrls]
+  );
   const combinedRows = useMemo(() => {
     const rows: RecruitRow[] = [];
     if (hasOfficialSource) {
@@ -425,6 +448,16 @@ export function App() {
     () => buildRecruitTagOptions(viewRows, meta?.labels ?? [], filters.selectedLabelIds),
     [filters.selectedLabelIds, meta, viewRows]
   );
+  const orderedTagFilterOptions = useMemo(() => {
+    const selected = new Set(filters.selectedLabelIds);
+    return [...tagFilterOptions].sort((a, b) => {
+      const activeDelta = Number(selected.has(b.id)) - Number(selected.has(a.id));
+      if (activeDelta !== 0) {
+        return activeDelta;
+      }
+      return 0;
+    });
+  }, [filters.selectedLabelIds, tagFilterOptions]);
   const filtered = useMemo(() => filterRecruitRows(viewRows, filters, meta), [filters, meta, viewRows]);
   const pendingNgaRefreshSamples = useMemo(
     () => getNgaSamplesPendingRefresh(ngaSamples, ngaSettings.refreshIntervalHours),
@@ -795,7 +828,8 @@ export function App() {
     const startedAt = new Date().toISOString();
     const totalBudget = ngaSettings.maxItems;
     let scannedThisRun = 0;
-    let keptThisRun = 0;
+    let addedThisRun = 0;
+    let checkedThisRun = 0;
     let collectedSamples = ngaSamples;
 
     if (!isTauriRuntime()) {
@@ -883,7 +917,8 @@ export function App() {
         );
         const scannedByBoard = Math.min(result.progress.collected || result.samples.length, remaining);
         scannedThisRun += scannedByBoard;
-        keptThisRun += result.progress.added ?? result.samples.length;
+        addedThisRun += result.progress.added ?? 0;
+        checkedThisRun += result.progress.checked ?? 0;
         if (result.samples.length) {
           collectedSamples = await applyNgaSamples(
             result.samples,
@@ -903,19 +938,25 @@ export function App() {
       }
 
       const cancelled = signal?.aborted || ngaAutoCollectRunRef.current !== runId;
+      const pendingAfterRun = getNgaSamplesPendingRefresh(collectedSamples, ngaSettings.refreshIntervalHours).length;
       setNgaProgress((current) => ({
         ...current,
         status: cancelled ? "cancelled" : "completed",
         collected: Math.min(scannedThisRun, totalBudget),
         maxItems: totalBudget,
-        message: cancelled ? "NGA 聚合读取已停止。" : `NGA 聚合检索完成，已扫描 ${scannedThisRun}/${totalBudget} 个主题，本轮新增 ${keptThisRun} 条。`,
+        added: addedThisRun,
+        checked: checkedThisRun,
+        pendingRefresh: pendingAfterRun,
+        message: cancelled
+          ? "NGA 聚合读取已停止。"
+          : `NGA 聚合检索完成，已扫描 ${scannedThisRun}/${totalBudget} 个主题，新增 ${addedThisRun} 条，已复核 ${checkedThisRun} 条，待刷新 ${pendingAfterRun} 条。`,
         finishedAt: new Date().toISOString()
       }));
       if (!cancelled) {
         setNgaMessage(
           options.reason === "startup-refresh"
-            ? `已完成自动复核，扫描 ${scannedThisRun}/${totalBudget} 个主题，本轮新增 ${keptThisRun} 条。`
-            : `NGA 聚合检索完成，已扫描 ${scannedThisRun}/${totalBudget} 个主题，本轮新增 ${keptThisRun} 条，已保存招募现有 ${collectedSamples.length} 条。`
+            ? `已完成自动复核，扫描 ${scannedThisRun}/${totalBudget} 个主题，新增 ${addedThisRun} 条，已复核 ${checkedThisRun} 条，待刷新 ${pendingAfterRun} 条。`
+            : `NGA 聚合检索完成，已扫描 ${scannedThisRun}/${totalBudget} 个主题，新增 ${addedThisRun} 条，已复核 ${checkedThisRun} 条，待刷新 ${pendingAfterRun} 条，已保存招募现有 ${collectedSamples.length} 条。`
         );
       }
     } catch (error) {
@@ -1363,64 +1404,112 @@ export function App() {
         </div>
 
         <div className="sidebar-content">
-        <section className="panel">
-          <SectionTitle icon={<Globe2 size={16} />} title="数据来源" />
-          <Field label="结果来源">
-            <div className="source-toggle-grid" role="group" aria-label="结果来源">
-              {SOURCE_OPTIONS.map(([value, label]) => (
-                <ToggleButton
-                  key={value}
-                  active={sourceFilters.includes(value)}
-                  label={label}
-                  onClick={() => toggleSourceFilter(value)}
+        <section className="panel source-panel">
+          <div className="panel-title-row">
+            <SectionTitle icon={<Globe2 size={16} />} title="数据来源" />
+            <button
+              type="button"
+              className="panel-collapse-button"
+              aria-expanded={sourcePanelOpen}
+              onClick={() => setSourcePanelOpen((current) => !current)}
+            >
+              {sourcePanelOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              {sourcePanelOpen ? "收起" : "展开"}
+            </button>
+          </div>
+          {sourcePanelOpen ? (
+            <>
+              <Field label="结果来源">
+                <div className="source-toggle-grid" role="group" aria-label="结果来源">
+                  {SOURCE_OPTIONS.map(([value, label]) => (
+                    <ToggleButton
+                      key={value}
+                      active={sourceFilters.includes(value)}
+                      label={label}
+                      onClick={() => toggleSourceFilter(value)}
+                    />
+                  ))}
+                </div>
+              </Field>
+              <Field label="浏览视图">
+                <div className="segmented-control">
+                  {NGA_RECRUIT_VIEW_OPTIONS.map(([value, label]) => (
+                    <button
+                      type="button"
+                      key={value}
+                      className={filters.ngaRecruitView === value ? "active" : ""}
+                      onClick={() => updateFilters({ ngaRecruitView: value })}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              {hasNgaSource ? (
+                <NgaPanel
+                  settings={ngaSettings}
+                  session={ngaSession}
+                  progress={ngaProgress}
+                  sampleCount={ngaSamples.length}
+                  visibleSampleCount={ngaRows.length}
+                  pendingRefreshCount={pendingNgaRefreshSamples.length}
+                  sampleStoreLocation={ngaSampleStoreLocation}
+                  report={ngaReport}
+                  isOpening={isOpeningNga}
+                  isClearing={isClearingNga}
+                  isCollecting={isCollectingNga}
+                  isAutoCollectArmed={isAutoCollectArmed}
+                  message={ngaMessage}
+                  error={ngaError}
+                  onSettingsChange={updateNgaSettings}
+                  onBoardToggle={toggleNgaBoardUrl}
+                  onMultiBoardToggle={toggleNgaMultiBoardMode}
+                  onKeepLoginChange={(nextValue) => void toggleNgaKeepLogin(nextValue)}
+                  onOpen={() => void openNgaLoginWindow()}
+                  onClear={() => void clearNgaLoginState()}
+                  onAutoCollect={() => void openNgaAndCollectAfterLogin()}
+                  onCollect={() => void collectNgaSamplesFromVisiblePage()}
+                  onCollectDetails={() => void collectNgaDetailsForStoredSamples()}
+                  onStop={() => void stopNgaCollection()}
+                  onAnalyze={() => setNgaReport(analyzeNgaSamples(ngaSamples))}
+                  onClearSamples={() => void clearNgaSamples()}
                 />
-              ))}
-            </div>
-          </Field>
-          <Field label="浏览视图">
-            <div className="segmented-control">
-              {NGA_RECRUIT_VIEW_OPTIONS.map(([value, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  className={filters.ngaRecruitView === value ? "active" : ""}
-                  onClick={() => updateFilters({ ngaRecruitView: value })}
-                >
-                  {label}
+              ) : null}
+            </>
+          ) : (
+            <div className="source-panel-summary">
+              <span>
+                <strong>来源</strong>
+                {selectedSourceLabel}
+              </span>
+              <span>
+                <strong>视图</strong>
+                {selectedViewLabel}
+              </span>
+              {hasNgaSource ? (
+                <>
+                  <span>
+                    <strong>NGA地区</strong>
+                    {formatNgaBoardSummary(selectedNgaBoardLabels)}
+                  </span>
+                  <span>
+                    <strong>NGA已保存</strong>
+                    {ngaSamples.length}
+                  </span>
+                  <span>
+                    <strong>待刷新</strong>
+                    {pendingNgaRefreshSamples.length}
+                  </span>
+                </>
+              ) : null}
+              {isCollectingNga || isAutoCollectArmed ? (
+                <button type="button" className="danger-button source-summary-stop" onClick={() => void stopNgaCollection()}>
+                  <XCircle size={15} />
+                  停止
                 </button>
-              ))}
+              ) : null}
             </div>
-          </Field>
-          {hasNgaSource ? (
-            <NgaPanel
-              settings={ngaSettings}
-              session={ngaSession}
-                progress={ngaProgress}
-                sampleCount={ngaSamples.length}
-                visibleSampleCount={ngaRows.length}
-                pendingRefreshCount={pendingNgaRefreshSamples.length}
-                sampleStoreLocation={ngaSampleStoreLocation}
-              report={ngaReport}
-              isOpening={isOpeningNga}
-              isClearing={isClearingNga}
-              isCollecting={isCollectingNga}
-              isAutoCollectArmed={isAutoCollectArmed}
-              message={ngaMessage}
-              error={ngaError}
-              onSettingsChange={updateNgaSettings}
-              onBoardToggle={toggleNgaBoardUrl}
-              onMultiBoardToggle={toggleNgaMultiBoardMode}
-              onKeepLoginChange={(nextValue) => void toggleNgaKeepLogin(nextValue)}
-              onOpen={() => void openNgaLoginWindow()}
-              onClear={() => void clearNgaLoginState()}
-              onAutoCollect={() => void openNgaAndCollectAfterLogin()}
-              onCollect={() => void collectNgaSamplesFromVisiblePage()}
-              onCollectDetails={() => void collectNgaDetailsForStoredSamples()}
-              onStop={() => void stopNgaCollection()}
-              onAnalyze={() => setNgaReport(analyzeNgaSamples(ngaSamples))}
-              onClearSamples={() => void clearNgaSamples()}
-            />
-          ) : null}
+          )}
         </section>
 
         <section className="panel">
@@ -1450,23 +1539,19 @@ export function App() {
         <section className="panel">
           <SectionTitle icon={<Filter size={16} />} title="招募筛选条件" />
           <Field label="标签/类型">
-            <div className="chip-grid compact">
-              {tagFilterOptions.map((tag) => (
-                <ToggleChip
-                  key={tag.id}
-                  active={filters.selectedLabelIds.includes(tag.id)}
-                  label={tag.label}
-                  count={tag.count}
-                  onClick={() => {
-                    updateFilters({
-                      selectedLabelIds: filters.selectedLabelIds.includes(tag.id)
-                        ? filters.selectedLabelIds.filter((id) => id !== tag.id)
-                        : [...filters.selectedLabelIds, tag.id]
-                    });
-                  }}
-                />
-              ))}
-            </div>
+            <ExpandableTagChipGrid
+              options={orderedTagFilterOptions}
+              selectedIds={filters.selectedLabelIds}
+              expanded={tagFiltersExpanded}
+              onExpandedChange={setTagFiltersExpanded}
+              onToggle={(tagId) => {
+                updateFilters({
+                  selectedLabelIds: filters.selectedLabelIds.includes(tagId)
+                    ? filters.selectedLabelIds.filter((id) => id !== tagId)
+                    : [...filters.selectedLabelIds, tagId]
+                });
+              }}
+            />
           </Field>
           <div className="two-columns">
             <Field label="不能早于">
@@ -1890,6 +1975,108 @@ function ToggleChip({ active, label, count, onClick }: { active: boolean; label:
   );
 }
 
+type RecruitTagOption = ReturnType<typeof buildRecruitTagOptions>[number];
+
+function ExpandableTagChipGrid({
+  options,
+  selectedIds,
+  expanded,
+  onExpandedChange,
+  onToggle
+}: {
+  options: RecruitTagOption[];
+  selectedIds: string[];
+  expanded: boolean;
+  onExpandedChange: (nextValue: boolean) => void;
+  onToggle: (tagId: string) => void;
+}) {
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [hiddenCount, setHiddenCount] = useState(0);
+
+  useLayoutEffect(() => {
+    const element = gridRef.current;
+    if (!element) {
+      setHiddenCount(0);
+      return;
+    }
+
+    let frame = 0;
+    const measure = () => {
+      const chips = Array.from(element.querySelectorAll<HTMLElement>(".chip"));
+      const rowTops = [...new Set(chips.map((chip) => Math.round(chip.offsetTop)))].sort((a, b) => a - b);
+      if (rowTops.length <= 4) {
+        setHiddenCount(0);
+        return;
+      }
+      const lastVisibleTop = rowTops[3];
+      setHiddenCount(chips.filter((chip) => Math.round(chip.offsetTop) > lastVisibleTop).length);
+    };
+    const scheduleMeasure = () => {
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+      frame = window.requestAnimationFrame(measure);
+    };
+
+    scheduleMeasure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleMeasure);
+    observer?.observe(element);
+    window.addEventListener("resize", scheduleMeasure);
+
+    return () => {
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+      observer?.disconnect();
+      window.removeEventListener("resize", scheduleMeasure);
+    };
+  }, [expanded, options, selectedIds]);
+
+  if (!options.length) {
+    return <div className="inline-value compact-value">暂无可用标签</div>;
+  }
+
+  const hasOverflow = hiddenCount > 0;
+
+  return (
+    <div className="tag-filter-shell">
+      <div className={`tag-filter-clip${expanded ? " expanded" : ""}${hasOverflow && !expanded ? " overflowing" : ""}`}>
+        <div className="chip-grid compact tag-filter-grid" ref={gridRef}>
+          {options.map((tag) => (
+            <ToggleChip
+              key={tag.id}
+              active={selectedIds.includes(tag.id)}
+              label={tag.label}
+              count={tag.count}
+              onClick={() => onToggle(tag.id)}
+            />
+          ))}
+        </div>
+      </div>
+      {hasOverflow ? (
+        <button
+          type="button"
+          className="tag-filter-more-button"
+          aria-expanded={expanded}
+          onClick={() => onExpandedChange(!expanded)}
+        >
+          {expanded ? (
+            <>
+              <ChevronUp size={14} />
+              收起标签
+            </>
+          ) : (
+            <>
+              <ChevronDown size={14} />
+              展开更多（{hiddenCount}）
+            </>
+          )}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function ToggleButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
     <button
@@ -1955,7 +2142,8 @@ function AggregateStatusStrip({
         ) : null}
       </div>
       <div className="aggregate-status-metrics">
-        <span>本地已保存 {ngaSampleCount + officialFetched}</span>
+        <span>NGA已保存 {ngaSampleCount}</span>
+        <span>石之家本轮 {officialFetched || "-"}</span>
         <span>当前命中 {visibleCount}</span>
         <span>待刷新 {pendingRefreshCount}</span>
         <span>最近复核 {latestText}</span>
@@ -3029,6 +3217,17 @@ function textOrFallback(value: unknown): string {
 
 function formatRecruitSourceLabel(source: RecruitSource): string {
   return source === "nga" ? "NGA" : "石之家";
+}
+
+function formatNgaBoardSummary(labels: string[]): string {
+  const uniqueLabels = uniqueDisplayItems(labels);
+  if (!uniqueLabels.length) {
+    return "国服";
+  }
+  if (uniqueLabels.length <= 2) {
+    return uniqueLabels.join(" + ");
+  }
+  return `${uniqueLabels.slice(0, 2).join(" + ")} 等 ${uniqueLabels.length} 区`;
 }
 
 function formatRecruitTimeForDisplay(value: string): string {

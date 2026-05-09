@@ -28,6 +28,8 @@
 - NGA card titles use the parsed dungeon name; subtitles and author/team display are cleaned to remove NGA level, prestige, registration date, and similar author metadata.
 - Local additive sample cache stores parser fields plus review metadata (`lastCheckedAt`, `lastSeenAt`, `detailFetchedAt`, `contentHash`, `closedAt`, `sourceBoardUrl`) for cache-aware refresh.
 - Result rendering now uses a virtualized window-scroll list with stable row IDs, per-card update highlight, and scroll-anchor compensation.
+- Filter sidebar keeps tag/type filters to a four-row preview with selected tags prioritized; the data-source panel can collapse to a compact source/view/NGA cache summary.
+- Cache review status separates NGA saved rows from current Stone Home rows, and pending refresh excludes already confirmed closed cached samples.
 - Parser v1 with rules, dictionaries, and heuristics for:
   - team recruitment
   - player seeking team
@@ -58,7 +60,7 @@
 - `cargo test --manifest-path src-tauri/Cargo.toml`: 6 tests passed.
 - `npm run test:e2e`: 7 tests passed.
 - `npm run validate:nga-parser`: 30 curated fixtures, 213 structured assertions, 213 passed.
-- The parser harness curated checks passed. The local saved sample pool is currently 504 total samples, 503 with body, and 267 high-confidence effective rows; the command exits non-zero only because the old local sample baseline expected 396 rows.
+- The parser harness curated checks passed. The local saved sample pool is currently 504 total samples, 503 with body, and 261 high-confidence effective rows; the command exits non-zero only because the old local sample baseline expected 396 rows.
 - Curated parser accuracy is 100.0% on the current hand-labeled edge cases, Wilson 95% confidence interval 98.2%-100.0%.
 
 ## 2026-05-09 Active Scan And Filter Follow-up

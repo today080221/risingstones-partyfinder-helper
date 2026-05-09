@@ -688,10 +688,10 @@ export function getNgaSamplesPendingRefresh(
 ): NgaSample[] {
   const cutoff = now.getTime() - clampInteger(refreshIntervalHours, MIN_REFRESH_INTERVAL_HOURS, MAX_REFRESH_INTERVAL_HOURS) * 60 * 60 * 1000;
   return mergeNgaSamples(samples, NGA_MAX_SAMPLE_STORE_ITEMS).filter((sample) => {
-    if (sample.closedAt) {
+    if (sample.closedAt || isNgaSampleSoftClosed(sample)) {
       return false;
     }
-    if (!sample.body || isNgaSampleSoftClosed(sample)) {
+    if (!sample.body) {
       return true;
     }
     const checkedAt = Date.parse(sample.lastCheckedAt || sample.detailFetchedAt || sample.lastSeenAt || "");
@@ -5300,6 +5300,23 @@ function hasNgaSampleContentChanged(previous: NgaSample, next: NgaSample): boole
 
 export function isNgaSampleSoftClosed(sample: NgaSample): boolean {
   return Boolean(sample.closedAt) || classifyNgaSample(sample).isClosed;
+}
+
+export function normalizeNgaCacheReviewSamples<T extends Partial<Record<keyof NgaSample, unknown>>>(
+  inputs: T[],
+  maxItems: number,
+  now = new Date()
+): NgaSample[] {
+  const nowIso = now.toISOString();
+  return mergeNgaSamples(inputs, maxItems).map((sample) => {
+    if (!sample.closedAt && isNgaSampleSoftClosed(sample)) {
+      return {
+        ...sample,
+        closedAt: nowIso
+      };
+    }
+    return sample;
+  });
 }
 
 function latestIsoish(a?: string, b?: string): string {

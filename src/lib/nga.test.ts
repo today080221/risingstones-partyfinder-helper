@@ -7,6 +7,7 @@ import {
   cleanNgaDisplayText,
   getNgaSamplesPendingRefresh,
   mergeNgaSamplesWithDiff,
+  normalizeNgaCacheReviewSamples,
   normalizeNgaCollectionSettings,
   resolveKeepLoginPreference,
   mergeNgaSamples,
@@ -1370,6 +1371,54 @@ describe("nga cache refresh", () => {
     const pending = getNgaSamplesPendingRefresh(samples, 12, new Date("2026-05-09T22:00:00.000Z"));
     expect(pending.map((sample) => sample.topicId)).toEqual(["123"]);
     expect(samples).toHaveLength(2);
+  });
+
+  it("keeps confirmed closed cached samples out of pending refresh", () => {
+    const samples = [
+      sanitizeNgaSample({
+        title: "绝欧固定队招募",
+        body: "已招满，招募结束",
+        url: "https://bbs.nga.cn/read.php?tid=125",
+        topicId: "125",
+        lastCheckedAt: "2026-05-08T08:00:00.000Z"
+      }),
+      sanitizeNgaSample({
+        title: "绝亚固定队招募",
+        body: "",
+        url: "https://bbs.nga.cn/read.php?tid=126",
+        topicId: "126",
+        lastCheckedAt: "2026-05-09T14:00:00.000Z"
+      }),
+      sanitizeNgaSample({
+        title: "绝龙诗固定队招募",
+        body: "缺D1 周末晚8-11",
+        url: "https://bbs.nga.cn/read.php?tid=127",
+        topicId: "127"
+      })
+    ];
+
+    const pending = getNgaSamplesPendingRefresh(samples, 12, new Date("2026-05-09T22:00:00.000Z"));
+    expect(pending.map((sample) => sample.topicId)).toEqual(["126", "127"]);
+  });
+
+  it("fills closed metadata for legacy cached samples without refreshing check time", () => {
+    const normalized = normalizeNgaCacheReviewSamples(
+      [
+        sanitizeNgaSample({
+          title: "绝欧固定队招募",
+          body: "已满，关闭招募",
+          url: "https://bbs.nga.cn/read.php?tid=128",
+          topicId: "128",
+          lastCheckedAt: "2026-05-08T08:00:00.000Z"
+        })
+      ],
+      20,
+      new Date("2026-05-09T22:00:00.000Z")
+    );
+
+    expect(normalized[0].closedAt).toBe("2026-05-09T22:00:00.000Z");
+    expect(normalized[0].lastCheckedAt).toBe("2026-05-08T08:00:00.000Z");
+    expect(getNgaSamplesPendingRefresh(normalized, 12, new Date("2026-05-09T22:00:00.000Z"))).toHaveLength(0);
   });
 
   it("builds compact cache index without body text", () => {

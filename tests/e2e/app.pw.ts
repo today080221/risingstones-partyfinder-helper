@@ -192,6 +192,41 @@ test("renders the first screen and NGA panel without runtime errors", async ({ p
   expect(consoleErrors).toEqual([]);
 });
 
+test("source panel collapses to a compact summary", async ({ page }) => {
+  await page.goto("/");
+
+  const sourcePanel = page.locator(".source-panel");
+  await expect(sourcePanel.getByText("NGA 地区")).toBeVisible();
+  await sourcePanel.getByRole("button", { name: "收起" }).click();
+
+  await expect(sourcePanel.getByText("结果来源")).toHaveCount(0);
+  await expect(sourcePanel.getByText("来源", { exact: true })).toBeVisible();
+  await expect(sourcePanel.getByText("石之家 + NGA")).toBeVisible();
+  await expect(sourcePanel.getByText("视图", { exact: true })).toBeVisible();
+  await expect(sourcePanel.getByText("队伍招募")).toBeVisible();
+  await expect(sourcePanel.getByText("NGA地区")).toBeVisible();
+  await expect(sourcePanel.getByText("NGA已保存")).toBeVisible();
+  await expect(sourcePanel.getByText("待刷新")).toBeVisible();
+
+  await sourcePanel.getByRole("button", { name: "展开" }).click();
+  await expect(sourcePanel.getByText("NGA 地区")).toBeVisible();
+});
+
+test("tag filter preview shows four rows and expands", async ({ page }) => {
+  await page.goto("/");
+
+  const tagField = page.locator(".field").filter({ hasText: "标签/类型" });
+  const clip = tagField.locator(".tag-filter-clip");
+  const expandButton = tagField.getByRole("button", { name: /展开更多/ });
+  await expect(expandButton).toBeVisible();
+
+  const collapsedBox = await clip.boundingBox();
+  await expandButton.click();
+  await expect(tagField.getByRole("button", { name: /收起标签/ })).toBeVisible();
+  const expandedBox = await clip.boundingBox();
+  expect(expandedBox?.height ?? 0).toBeGreaterThan((collapsedBox?.height ?? 0) + 8);
+});
+
 test("selects NGA regions and advanced board presets", async ({ page }) => {
   await page.goto("/");
 
@@ -261,6 +296,9 @@ test("aggregate search pulls official rows when official source and dungeon are 
 
   await expect(page.getByRole("heading", { name: "巴哈姆特绝境战" })).toBeVisible();
   await expect(page.getByText("绝境战 · 陆行鸟/红玉海")).toBeVisible();
+  await expect(page.getByText(/NGA已保存/)).toBeVisible();
+  await expect(page.getByText(/石之家本轮 2/)).toBeVisible();
+  await expect(page.getByText(/本地已保存/)).toHaveCount(0);
 });
 
 test("player seeking view includes official rows tagged as seeking", async ({ page }) => {

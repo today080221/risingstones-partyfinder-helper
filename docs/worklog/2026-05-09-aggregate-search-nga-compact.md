@@ -57,13 +57,15 @@
 - NGA 聚合顺序调整为先扫描新主题，再静默复核超过间隔、缺正文或状态不确定的旧主题；未变化主题只刷新复核时间，不重复打开正文。
 - `misc/adpage_insert_2.html?...` 继续页面现在会优先自动点击页面里的继续按钮，失败时再提示用户处理。
 - 结果列表接入 `react-virtuoso`，使用 window scroll 承载可变高度卡片；卡片按稳定 ID 热更新，新增/更新时短暂高亮，并在插入或隐藏后做 scroll anchor 补偿。
-- 结果区状态条改为 cache 友好口径：本地已保存、当前命中、待刷新、最近复核；聚合中显示新增、待刷新、已复核和细进度条。
+- 结果区状态条改为 cache 友好口径：NGA 已保存、石之家本轮、当前命中、待刷新、最近复核；聚合完成文案显示新增、已复核和剩余待刷新。
+- 数据来源面板新增整体折叠摘要；标签/类型筛选默认 4 行预览，剩余标签渐隐折叠，已选标签优先进入预览。
+- 旧 NGA cache 读取时会补齐已确认关闭样本的 `closedAt`，但不会刷新 `lastCheckedAt`；待刷新计数不再包含已确认关闭的历史样本。
 
 ## Verification
 
-- `npm test`: 116/116 passed.
+- `npm test`: 119/119 passed.
 - `npm run build`: passed.
 - `cargo check --manifest-path src-tauri/Cargo.toml`: passed.
 - `cargo test --manifest-path src-tauri/Cargo.toml`: 8/8 passed.
-- `npm run test:e2e`: 7/7 passed.
-- `npm run validate:nga-parser`: curated assertions 213/213 passed; command exit is currently blocked by the local saved NGA data differing from the old 396-row baseline. Current local pool is 504 rows, 503 with body, 267 high-confidence effective rows.
+- `npm run test:e2e`: 9/9 passed.
+- `npm run validate:nga-parser`: curated assertions 213/213 passed; command exit is currently blocked by the local saved NGA data differing from the old 396-row baseline. Current local pool is 504 rows, 503 with body, 261 high-confidence effective rows.
