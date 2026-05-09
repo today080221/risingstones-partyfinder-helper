@@ -564,9 +564,14 @@ export function App() {
     );
   }
 
-  async function applyNgaSamples(incomingSamples: NgaSample[], message?: string, options: { replace?: boolean } = {}): Promise<NgaSample[]> {
+  async function applyNgaSamples(
+    incomingSamples: NgaSample[],
+    message?: string,
+    options: { replace?: boolean; baseSamples?: NgaSample[] } = {}
+  ): Promise<NgaSample[]> {
     const enrichedIncoming = incomingSamples.map((sample) => enrichNgaSampleForCache(sample));
     const scrollAnchor = captureResultScrollAnchor();
+    const mergeBase = options.baseSamples ?? ngaSamples;
     const mergeResult = options.replace
       ? {
           samples: mergeNgaSamples(enrichedIncoming, NGA_MAX_SAMPLE_STORE_ITEMS),
@@ -575,7 +580,7 @@ export function App() {
           checkedKeys: [],
           softClosedKeys: enrichedIncoming.filter(isNgaSampleSoftClosed).map(getNgaSampleKey).filter(Boolean)
         }
-      : mergeNgaSamplesWithDiff(ngaSamples, enrichedIncoming, NGA_MAX_SAMPLE_STORE_ITEMS);
+      : mergeNgaSamplesWithDiff(mergeBase, enrichedIncoming, NGA_MAX_SAMPLE_STORE_ITEMS);
     const sanitized = mergeResult.samples;
     setNgaSamples(sanitized);
     setNgaReport(sanitized.length ? analyzeNgaSamples(sanitized) : null);
@@ -933,7 +938,8 @@ export function App() {
         if (result.samples.length) {
           collectedSamples = await applyNgaSamples(
             result.samples,
-            `已从 ${boardLabel} 快扫 ${result.progress.collected} 个主题，新帖 ${result.progress.added ?? 0} 条，复核 ${reviewedByBoard} 条。`
+            `已从 ${boardLabel} 快扫 ${result.progress.collected} 个主题，新帖 ${result.progress.added ?? 0} 条，复核 ${reviewedByBoard} 条。`,
+            { baseSamples: collectedSamples }
           );
         }
         if (result.warnings.length) {
@@ -1279,7 +1285,8 @@ export function App() {
       if (result.samples.length > 0) {
         const sanitized = await applyNgaSamples(
           result.samples,
-          `已在 NGA 当前可见页面读取到 ${result.samples.length} 条，已保存招募现有 ${mergeNgaSamples([...collectedSamples, ...result.samples], NGA_MAX_SAMPLE_STORE_ITEMS).length} 条。`
+          `已在 NGA 当前可见页面读取到 ${result.samples.length} 条，已保存招募现有 ${mergeNgaSamples([...collectedSamples, ...result.samples], NGA_MAX_SAMPLE_STORE_ITEMS).length} 条。`,
+          { baseSamples: collectedSamples }
         );
         collectedSamples = sanitized;
         setNgaProgress(result.progress);

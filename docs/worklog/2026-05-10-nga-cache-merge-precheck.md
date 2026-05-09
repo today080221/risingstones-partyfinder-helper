@@ -44,6 +44,9 @@
 - Review 发现：复用已有 NGA 窗口时，若窗口停在同一招募板的 `page=2` 或更深页面，ready 判断只匹配 `stid` 会误判已就绪，导致本轮快扫不是从首页开始。
 - 修复：将 NGA 目标页匹配抽到 `src/lib/nga.ts`，`thread.php` 同时比较 `stid` 和 `page`；缺省 `page` 按 `1` 处理，`read.php` 仍按 `tid` 匹配。
 - 回归：新增两个单测覆盖板块首页/page 匹配和详情页 topic 匹配；`npm test` 127/127 passed，`npm run build` passed。
+- 最新 review 发现：多地区连续读取时，`applyNgaSamples` 使用函数创建时捕获的旧 `ngaSamples`，后续地区保存可能覆盖本轮前面地区的新样本。
+- 修复：`applyNgaSamples` 新增 `baseSamples` 选项；多地区聚合和登录后当前页读取都传入本轮运行中的 `collectedSamples`，确保顺序读取会累积合并。
+- 回归：`npm test` 127/127 passed，`npm run build` passed。
 
 ## Merge And Release Readiness
 
