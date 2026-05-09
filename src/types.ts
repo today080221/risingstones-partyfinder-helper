@@ -284,6 +284,7 @@ export interface NgaCollectionProgress {
   reviewed?: number;
   archived?: number;
   deleted?: number;
+  exhausted?: boolean;
   startedAt?: string;
   finishedAt?: string;
 }

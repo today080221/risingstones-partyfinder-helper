@@ -5478,6 +5478,7 @@ export interface NgaCacheLifecycleOptions {
   archiveAfterDays?: number;
   deleteAfterDays?: number;
   scopedBoardUrls?: string[];
+  fullScannedBoardUrls?: string[];
 }
 
 export interface NgaCacheLifecycleResult {
@@ -5512,18 +5513,26 @@ export function applyNgaCacheLifecycle(
   const deletedKeys: string[] = [];
   const kept: NgaSample[] = [];
   const scopedBoardUrls = new Set((options.scopedBoardUrls ?? []).filter(Boolean));
+  const fullScannedBoardUrls = new Set((options.fullScannedBoardUrls ?? []).filter(Boolean));
   const hasBoardScope = scopedBoardUrls.size > 0;
+  const hasExplicitFullBoardScope = options.fullScannedBoardUrls !== undefined;
 
   for (const sample of mergeNgaSamples(inputs, NGA_MAX_SAMPLE_STORE_ITEMS)) {
     const key = getNgaSampleKey(sample);
     const sampleInScope = !hasBoardScope || (sample.sourceBoardUrl ? scopedBoardUrls.has(sample.sourceBoardUrl) : false);
+    const sampleFullWindowScanned =
+      sampleInScope &&
+      (hasExplicitFullBoardScope
+        ? Boolean(sample.sourceBoardUrl && fullScannedBoardUrls.has(sample.sourceBoardUrl))
+        : fullWindowScanned);
     const archivedAt = parseNgaCacheTime(sample.archivedAt);
     const lastActivity = getNgaSampleLastActivityTime(sample);
     const seenAt = parseNgaCacheTime(sample.lastBoardSeenAt);
-    const seenInThisFullWindow = sampleInScope && fullWindowScanned && seenAt !== undefined && seenAt >= scanTime - 60_000;
-    const deleteByArchiveAge = sampleInScope && archivedAt !== undefined && archivedAt < deleteCutoff;
+    const seenInThisFullWindow = sampleFullWindowScanned && seenAt !== undefined && seenAt >= scanTime - 60_000;
+    const deleteByArchiveAge =
+      (hasExplicitFullBoardScope ? sampleFullWindowScanned : sampleInScope) && archivedAt !== undefined && archivedAt < deleteCutoff;
     const deleteByInactiveAge =
-      sampleInScope && archiveEnabled && fullWindowScanned && !seenInThisFullWindow && lastActivity !== undefined && lastActivity < deleteCutoff;
+      sampleFullWindowScanned && archiveEnabled && !seenInThisFullWindow && lastActivity !== undefined && lastActivity < deleteCutoff;
 
     if (deleteByArchiveAge || deleteByInactiveAge) {
       if (key) {
@@ -5534,8 +5543,7 @@ export function applyNgaCacheLifecycle(
 
     let next = sample;
     const shouldArchive =
-      fullWindowScanned &&
-      sampleInScope &&
+      sampleFullWindowScanned &&
       archiveEnabled &&
       !sample.archivedAt &&
       !seenInThisFullWindow &&
@@ -5551,7 +5559,7 @@ export function applyNgaCacheLifecycle(
         archivedKeys.push(key);
       }
     }
-    if (fullWindowScanned && sampleInScope) {
+    if (sampleFullWindowScanned) {
       next = {
         ...next,
         lastFullWindowScanAt: scanIso

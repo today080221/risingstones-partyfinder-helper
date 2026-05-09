@@ -94,6 +94,7 @@ struct NgaCollectStats {
     reviewed: usize,
     archived: usize,
     deleted: usize,
+    exhausted: bool,
 }
 
 #[tauri::command]
@@ -818,6 +819,7 @@ async fn risingstones_nga_collect_visible_samples(
         "reviewed": stats.reviewed,
         "archived": stats.archived,
         "deleted": stats.deleted,
+        "exhausted": stats.exhausted,
         "startedAt": started_at,
         "finishedAt": now_iso()
     });
@@ -2068,6 +2070,7 @@ async fn collect_nga_board_samples(
             }
         }
         let Some(next_url) = snapshot.next_url else {
+            stats.exhausted = true;
             break;
         };
         if scanned >= max_items {
