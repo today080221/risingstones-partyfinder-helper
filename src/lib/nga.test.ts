@@ -6,6 +6,7 @@ import {
   buildNgaCachedTopicIndex,
   classifyNgaSample,
   cleanNgaDisplayText,
+  getNgaSamplesPendingDetailBackfill,
   getNgaSamplesPendingRefresh,
   isNgaSampleArchived,
   mergeNgaSamplesWithDiff,
@@ -1777,6 +1778,83 @@ describe("nga cache refresh", () => {
     expect(result.addedKeys).toEqual(expect.arrayContaining(["125", "126"]));
     expect(result.softClosedKeys).toContain("126");
     expect(result.samples).toHaveLength(4);
+  });
+
+  it("preserves incoming active-window samples when the cache is already full", () => {
+    const result = mergeNgaSamplesWithDiff(
+      [
+        sanitizeNgaSample({
+          title: "旧招募 1",
+          body: "缺H2",
+          url: "https://bbs.nga.cn/read.php?tid=1",
+          topicId: "1"
+        }),
+        sanitizeNgaSample({
+          title: "旧招募 2",
+          body: "缺D1",
+          url: "https://bbs.nga.cn/read.php?tid=2",
+          topicId: "2"
+        }),
+        sanitizeNgaSample({
+          title: "旧招募 3",
+          body: "缺D4",
+          url: "https://bbs.nga.cn/read.php?tid=3",
+          topicId: "3"
+        })
+      ],
+      [
+        sanitizeNgaSample({
+          title: "新招募 4",
+          body: "缺H1",
+          url: "https://bbs.nga.cn/read.php?tid=4",
+          topicId: "4",
+          lastBoardSeenAt: "2026-05-10T08:00:00.000Z",
+          lastBoardRank: 1
+        })
+      ],
+      3
+    );
+
+    expect(result.samples).toHaveLength(3);
+    expect(result.addedKeys).toContain("4");
+    expect(result.samples.map((sample) => sample.topicId)).toContain("4");
+    expect(result.samples.map((sample) => sample.topicId)).not.toContain("3");
+  });
+
+  it("returns only bodyless active samples for detail backfill", () => {
+    const pending = getNgaSamplesPendingDetailBackfill(
+      [
+        sanitizeNgaSample({
+          title: "已有正文招募",
+          body: "缺H2",
+          url: "https://bbs.nga.cn/read.php?tid=1",
+          topicId: "1"
+        }),
+        sanitizeNgaSample({
+          title: "待补正文招募",
+          body: "",
+          url: "https://bbs.nga.cn/read.php?tid=2",
+          topicId: "2"
+        }),
+        sanitizeNgaSample({
+          title: "已关闭招募",
+          body: "",
+          url: "https://bbs.nga.cn/read.php?tid=3",
+          topicId: "3",
+          closedAt: "2026-05-10T08:00:00.000Z"
+        }),
+        sanitizeNgaSample({
+          title: "已归档招募",
+          body: "",
+          url: "https://bbs.nga.cn/read.php?tid=4",
+          topicId: "4",
+          archivedAt: "2026-05-10T08:00:00.000Z"
+        })
+      ],
+      20
+    );
+
+    expect(pending.map((sample) => sample.topicId)).toEqual(["2"]);
   });
 });
 

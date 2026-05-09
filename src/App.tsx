@@ -61,6 +61,7 @@ import {
   classifyNgaSample,
   cleanNgaDisplayText,
   getNgaSampleKey,
+  getNgaSamplesPendingDetailBackfill,
   getNgaSamplesPendingRefresh,
   isNgaSampleArchived,
   isSameNgaTargetUrl,
@@ -1195,8 +1196,9 @@ export function App() {
   }
 
   async function collectNgaDetailsForStoredSamples() {
-    if (ngaSamples.length === 0) {
-      setNgaError("当前没有可补正文的 NGA 招募。");
+    const pendingDetailSamples = getNgaSamplesPendingDetailBackfill(ngaSamples, ngaSettings.maxItems);
+    if (pendingDetailSamples.length === 0) {
+      setNgaError("当前没有待补正文的 NGA 招募。");
       return;
     }
     setIsCollectingNga(true);
@@ -1206,11 +1208,11 @@ export function App() {
       status: "collecting",
       currentUrl: "",
       collected: 0,
-      maxItems: Math.min(ngaSettings.maxItems, ngaSamples.length),
-      message: "正在按已存帖子链接补齐正文，请保持 NGA 窗口可见。"
+      maxItems: pendingDetailSamples.length,
+      message: "正在为缺正文的已存帖子补齐内容，请保持 NGA 窗口可见。"
     });
     try {
-      const result: NgaDetailCollectPayload = await collectNgaSampleDetails(ngaSamples, ngaSettings);
+      const result: NgaDetailCollectPayload = await collectNgaSampleDetails(pendingDetailSamples, ngaSettings);
       const merged = await applyNgaSamples(
         result.samples,
         `${result.progress.message} 已保存招募现有 ${mergeNgaSamples([...ngaSamples, ...result.samples], NGA_MAX_SAMPLE_STORE_ITEMS).length} 条。`

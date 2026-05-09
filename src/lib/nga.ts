@@ -652,9 +652,13 @@ export function mergeNgaSamplesWithDiff(
   incomingSamples: NgaSample[],
   maxItems: number
 ): NgaSampleMergeResult {
-  const current = mergeNgaSamples(currentSamples, maxItems);
+  const limit = clampInteger(maxItems, MIN_MAX_ITEMS, MAX_MAX_ITEMS);
+  const current = mergeNgaSamples(currentSamples, limit);
   const currentByKey = new Map(current.map((sample) => [getNgaSampleKey(sample), sample]).filter(([key]) => Boolean(key)) as Array<[string, NgaSample]>);
-  const incoming = mergeNgaSamples(incomingSamples, maxItems);
+  const incoming = mergeNgaSamples(incomingSamples, limit);
+  const samples = [...current];
+  const indexByKey = new Map(samples.map((sample, index) => [getNgaSampleKey(sample), index]).filter(([key]) => Boolean(key)) as Array<[string, number]>);
+  const protectedKeys = new Set<string>();
   const addedKeys: string[] = [];
   const updatedKeys: string[] = [];
   const checkedKeys: string[] = [];
@@ -671,25 +675,73 @@ export function mergeNgaSamplesWithDiff(
       if (isNgaSampleSoftClosed(sample)) {
         softClosedKeys.push(key);
       }
+    } else {
+      if (isNgaSampleSoftClosed(sample) && !isNgaSampleSoftClosed(previous)) {
+        softClosedKeys.push(key);
+      }
+      if (hasNgaSampleContentChanged(previous, sample)) {
+        updatedKeys.push(key);
+      } else if (sample.lastCheckedAt || sample.lastSeenAt) {
+        checkedKeys.push(key);
+      }
+    }
+
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex !== undefined) {
+      samples[existingIndex] = mergeNgaSamplePair(samples[existingIndex], sample);
+      protectedKeys.add(key);
       continue;
     }
-    if (isNgaSampleSoftClosed(sample) && !isNgaSampleSoftClosed(previous)) {
-      softClosedKeys.push(key);
+
+    if (samples.length >= limit) {
+      const evictionIndex = findNgaCacheEvictionIndex(samples, protectedKeys);
+      if (evictionIndex < 0) {
+        continue;
+      }
+      const evictedKey = getNgaSampleKey(samples[evictionIndex]);
+      if (evictedKey) {
+        indexByKey.delete(evictedKey);
+      }
+      samples.splice(evictionIndex, 1);
+      for (let index = evictionIndex; index < samples.length; index += 1) {
+        const shiftedKey = getNgaSampleKey(samples[index]);
+        if (shiftedKey) {
+          indexByKey.set(shiftedKey, index);
+        }
+      }
     }
-    if (hasNgaSampleContentChanged(previous, sample)) {
-      updatedKeys.push(key);
-    } else if (sample.lastCheckedAt || sample.lastSeenAt) {
-      checkedKeys.push(key);
-    }
+
+    indexByKey.set(key, samples.length);
+    samples.push(sample);
+    protectedKeys.add(key);
   }
 
   return {
-    samples: mergeNgaSamples([...current, ...incoming], maxItems),
+    samples,
     addedKeys,
     updatedKeys,
     checkedKeys,
     softClosedKeys
   };
+}
+
+function findNgaCacheEvictionIndex(samples: NgaSample[], protectedKeys: Set<string>): number {
+  for (let index = samples.length - 1; index >= 0; index -= 1) {
+    const key = getNgaSampleKey(samples[index]);
+    if (key && protectedKeys.has(key)) {
+      continue;
+    }
+    if (samples[index].archivedAt || isNgaSampleSoftClosed(samples[index])) {
+      return index;
+    }
+  }
+  for (let index = samples.length - 1; index >= 0; index -= 1) {
+    const key = getNgaSampleKey(samples[index]);
+    if (!key || !protectedKeys.has(key)) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 export function getNgaSampleKey(sample: NgaSample): string {
@@ -731,6 +783,13 @@ export function getNgaSamplesPendingRefresh(
     const checkedAt = Date.parse(sample.lastCheckedAt || sample.detailFetchedAt || sample.lastSeenAt || "");
     return !Number.isFinite(checkedAt) || checkedAt < cutoff;
   });
+}
+
+export function getNgaSamplesPendingDetailBackfill(samples: NgaSample[], maxItems = DEFAULT_NGA_COLLECTION_SETTINGS.maxItems): NgaSample[] {
+  const limit = clampInteger(maxItems, MIN_MAX_ITEMS, NGA_MAX_SAMPLE_STORE_ITEMS);
+  return mergeNgaSamples(samples, NGA_MAX_SAMPLE_STORE_ITEMS)
+    .filter((sample) => !sample.archivedAt && !isNgaSampleSoftClosed(sample) && !sample.body && Boolean(sample.url))
+    .slice(0, limit);
 }
 
 export function computeNgaSampleContentHash(sample: Partial<NgaSample>): string {
