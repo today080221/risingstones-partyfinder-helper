@@ -98,6 +98,40 @@ describe("official recruit cache", () => {
     expect(readOfficialRecruitCache({ fb_name: "副本-5" }, new Date(now.getTime() + 25_000)).status).toBe("fresh");
     expect(readOfficialRecruitCache({ fb_name: "副本-24" }, new Date(now.getTime() + 25_000)).status).toBe("fresh");
   });
+
+  it("returns the cache entry when localStorage write fails", () => {
+    const now = new Date("2026-05-10T10:00:00.000Z");
+    const payload = createPayload({ fb_name: "妖星乱舞绝境战" }, now);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: () => {
+        throw new Error("quota exceeded");
+      }
+    });
+
+    expect(() => writeOfficialRecruitCache(payload, now)).not.toThrow();
+    expect(writeOfficialRecruitCache(payload, now)).toMatchObject({
+      key: buildOfficialRecruitCacheKey(payload.query),
+      payload
+    });
+  });
+
+  it("keeps read results when prune persistence fails", () => {
+    const now = new Date("2026-05-10T10:00:00.000Z");
+    const payload = createPayload({ fb_name: "妖星乱舞绝境战" }, now);
+    writeOfficialRecruitCache(payload, now);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: () => {
+        throw new Error("storage unavailable");
+      }
+    });
+
+    const lookup = readOfficialRecruitCache(payload.query, new Date(now.getTime() + OFFICIAL_CACHE_TTL_MS - 1));
+
+    expect(lookup.status).toBe("fresh");
+    expect(lookup.entry?.payload).toEqual(payload);
+  });
 });
 
 function createPayload(query: RecruitQuery, now: Date): RecruitFetchPayload {

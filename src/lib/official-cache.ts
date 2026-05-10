@@ -107,7 +107,12 @@ function saveOfficialRecruitCacheEntries(entries: OfficialRecruitCacheEntry[]): 
   if (typeof localStorage === "undefined") {
     return;
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  } catch {
+    // Cache is an optimization layer. Storage quota or privacy-mode failures
+    // must not block the official recruit fetch flow.
+  }
 }
 
 function isOfficialRecruitCacheEntry(value: unknown): value is OfficialRecruitCacheEntry {

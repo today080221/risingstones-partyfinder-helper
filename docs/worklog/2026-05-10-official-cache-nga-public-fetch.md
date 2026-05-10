@@ -236,6 +236,25 @@
   - 本轮未提交、未推送。
   - 建议提交前再由用户确认提交标题、是否直接 push 并创建 PR。
 
+## PR #2 follow-up: 石之家 cache 写入容错
+
+- 触发：PR #2 review 要求 `src/lib/official-cache.ts` 中 `localStorage.setItem` 失败不能导致石之家拉取失败。
+- 约束：只修石之家 cache 优化层，不修改 NGA 读取路径，不重新引入公开快速读取。
+- 计划：
+  - 在 `saveOfficialRecruitCacheEntries` 内捕获 `localStorage.setItem` 异常。
+  - 确保 `readOfficialRecruitCache` 中 prune 后的回写失败不影响读取结果。
+  - 确保 `writeOfficialRecruitCache` 在 cache 写入失败时仍返回 entry。
+  - 补充单测覆盖写入失败和 read prune/save 失败场景。
+- 预期验证：`npm test`、`npm run build`。
+- 实现：
+  - `saveOfficialRecruitCacheEntries` 捕获 `localStorage.setItem` 异常，避免 quota、隐私模式或本地存储不可用时阻断主流程。
+  - `readOfficialRecruitCache` 的 prune 后回写失败不再影响 cache lookup 结果。
+  - `writeOfficialRecruitCache` 在保存失败时仍返回构造出的 cache entry。
+  - 新增单测覆盖写入失败和 read prune/save 失败场景。
+- 验证：
+  - `npm test`：7 个测试文件、165/165 通过。
+  - `npm run build`：通过。
+
 ## 遗留风险
 
 - NGA WebView DOM 或页面继续浏览逻辑如果变化，默认读取路径仍可能需要调整；当前策略是遇到站点限制或异常页面时标记 unsupported/blocked，并回到用户可见处理路径。
