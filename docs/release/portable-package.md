@@ -208,6 +208,8 @@ RISINGSTONES_UPDATE_GITEE_REPO
 
 该 Secret 不会写入源码；但只要便携包需要直连国内镜像，最终发布包 manifest 中就必须包含可请求的镜像仓库路径。若需要完全隐藏国内镜像地址，需要另建中转服务或自有域名。
 
+在本机手动下载或核验 GitHub Release 资产时，`gh release download` 不一定自动复用 Windows 系统代理。若系统代理已开启，建议在同一 PowerShell 会话里显式设置 `HTTP_PROXY`、`HTTPS_PROXY` 和 `ALL_PROXY`，或改用 PowerShell `Invoke-WebRequest` 复用系统代理后再校验 SHA256。
+
 ## 验收清单
 
 发布前建议确认：
