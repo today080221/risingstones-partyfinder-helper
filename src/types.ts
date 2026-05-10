@@ -267,6 +267,7 @@ export interface NgaCachedTopic {
 
 export interface NgaCollectRequestSettings extends Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs" | "includeDetails" | "recentActiveDays" | "refreshIntervalHours" | "autoHandleInterstitial"> {
   cachedSamples?: NgaCachedTopic[];
+  forceRefresh?: boolean;
 }
 
 export interface NgaCollectionProgress {

@@ -23,6 +23,7 @@ import {
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
+import appIconUrl from "./assets/ashem-crystal.png";
 import {
   checkUpdate,
   cancelNgaCollection,
@@ -61,6 +62,7 @@ import {
   classifyNgaSample,
   cleanNgaDisplayText,
   getNgaSampleKey,
+  getNgaSamplesForDungeonForceRefresh,
   getNgaSamplesPendingDetailBackfill,
   getNgaSamplesPendingRefresh,
   isNgaSampleArchived,
@@ -77,6 +79,18 @@ import {
   sanitizeNgaSample,
   shouldShowNgaSample
 } from "./lib/nga";
+import {
+  readOfficialRecruitCache,
+  shouldUseOfficialRecruitCache,
+  writeOfficialRecruitCache,
+  type OfficialCacheStatus
+} from "./lib/official-cache";
+import {
+  canStartAggregateRead,
+  isReadLocked,
+  shouldStartOfficialAutoRefresh,
+  type AggregateRunState
+} from "./lib/read-state";
 import { buildRecruitTagOptions, deriveRecruitTags } from "./lib/tags";
 import { formatRecruitDailyDuration, formatRecruitTimeDisplay } from "./lib/time";
 import { getUpdateLevel, getUpdateStatusLabel, getUpdateStatusText } from "./lib/update-status";
@@ -213,12 +227,16 @@ export function App() {
   const [updateInstallMessage, setUpdateInstallMessage] = useState("");
   const [updateInstallError, setUpdateInstallError] = useState("");
   const [payload, setPayload] = useState<RecruitFetchPayload | null>(null);
+  const [officialCacheStatus, setOfficialCacheStatus] = useState<OfficialCacheStatus>("miss");
+  const [officialCacheSavedAt, setOfficialCacheSavedAt] = useState("");
+  const [officialCacheExpiresAt, setOfficialCacheExpiresAt] = useState("");
   const [fetchError, setFetchError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [aggregateRunState, setAggregateRunState] = useState<AggregateRunState>("idle");
   const abortRef = useRef<AbortController | null>(null);
   const updateAbortRef = useRef<AbortController | null>(null);
   const ngaAutoCollectRunRef = useRef(0);
-  const ngaAutoCollectStartedRef = useRef(false);
+  const officialAutoRefreshKeyRef = useRef("");
   const flashTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -293,19 +311,6 @@ export function App() {
       });
     return () => controller.abort();
   }, []);
-
-  useEffect(() => {
-    if (
-      !ngaSamplesLoaded ||
-      !ngaSession?.available ||
-      !ngaSession.autoCollectOnStart ||
-      ngaAutoCollectStartedRef.current
-    ) {
-      return;
-    }
-    ngaAutoCollectStartedRef.current = true;
-    void openNgaAndReadWhenReady();
-  }, [ngaSamplesLoaded, ngaSession?.available, ngaSession?.autoCollectOnStart]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -460,6 +465,17 @@ export function App() {
     }
     return rows;
   }, [hasNgaSource, hasOfficialSource, ngaRows, officialRows]);
+  const officialQuery = useMemo(
+    () =>
+      fbName
+        ? buildRecruitQuery({
+            fbName,
+            fbType,
+            teamComposition
+          })
+        : null,
+    [fbName, fbType, teamComposition]
+  );
   const rangeRows = useMemo(
     () => filterRecruitRowsByDataRange(combinedRows, { fbType, fbName }, meta),
     [combinedRows, fbName, fbType, meta]
@@ -496,31 +512,87 @@ export function App() {
   const updatePanelLevel = useMemo(() => getUpdateLevel(updateInfo, false, ""), [updateInfo]);
   const updatePanelLabel = updateInfo ? getUpdateStatusLabel(updatePanelLevel, updateInfo, false, "") : "";
   const updatePanelText = updateInfo ? getUpdateStatusText(updatePanelLevel, updateInfo, updateProvider, "") : "";
+  const readLocked = isReadLocked({ runState: aggregateRunState, isLoading, isCollectingNga });
+  const canRunAggregate = canStartAggregateRead({
+    runState: aggregateRunState,
+    isLoading,
+    isCollectingNga,
+    sourceCount: sourceFilters.length
+  });
 
   useEffect(() => {
+    if (!officialQuery) {
+      setOfficialCacheStatus("miss");
+      setOfficialCacheSavedAt("");
+      setOfficialCacheExpiresAt("");
+      return;
+    }
+    const lookup = readOfficialRecruitCache(officialQuery);
+    setOfficialCacheStatus(lookup.status);
+    setOfficialCacheSavedAt(lookup.entry?.savedAt ?? "");
+    setOfficialCacheExpiresAt(lookup.entry?.expiresAt ?? "");
+    if (lookup.entry) {
+      setPayload(lookup.entry.payload);
+    }
+  }, [officialQuery]);
+
+  useEffect(() => {
+    if (officialCacheStatus !== "fresh" || !officialCacheExpiresAt) {
+      return;
+    }
+    const expiresAt = Date.parse(officialCacheExpiresAt);
+    if (!Number.isFinite(expiresAt)) {
+      return;
+    }
+    const delay = expiresAt - Date.now();
+    if (delay <= 0) {
+      setOfficialCacheStatus("stale");
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setOfficialCacheStatus("stale");
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [officialCacheExpiresAt, officialCacheStatus]);
+
+  useEffect(() => {
+    const key = officialQuery ? `${JSON.stringify(officialQuery)}:${officialCacheSavedAt}` : "";
     if (
-      ngaAutoCollectStartedRef.current ||
-      !ngaSamplesLoaded ||
-      !ngaSettings.autoRefreshOnStart ||
-      !hasNgaSource ||
-      !isTauriRuntime() ||
-      isCollectingNga ||
-      pendingNgaRefreshSamples.length === 0
+      !shouldStartOfficialAutoRefresh({
+        runState: aggregateRunState,
+        isLoading,
+        isCollectingNga,
+        hasQuery: Boolean(officialQuery),
+        hasOfficialSource,
+        officialCacheStatus,
+        refreshKey: key,
+        lastStartedKey: officialAutoRefreshKeyRef.current
+      })
     ) {
       return;
     }
-    ngaAutoCollectStartedRef.current = true;
+    officialAutoRefreshKeyRef.current = key;
     const timer = window.setTimeout(() => {
-      void collectNgaSelectedBoards(undefined, { reason: "startup-refresh" });
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setAggregateRunState("official-auto");
+      setIsLoading(true);
+      void fetchOfficialRecruitsWithCache(controller.signal, { forceRefresh: true, reason: "official-auto" })
+        .catch((error) => {
+          if (!controller.signal.aborted) {
+            setFetchError(error instanceof Error ? `石之家自动刷新失败：${error.message}` : `石之家自动刷新失败：${String(error)}`);
+          }
+        })
+        .finally(() => {
+          if (abortRef.current === controller) {
+            abortRef.current = null;
+          }
+          setIsLoading(false);
+          setAggregateRunState("idle");
+        });
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [
-    hasNgaSource,
-    isCollectingNga,
-    ngaSamplesLoaded,
-    ngaSettings.autoRefreshOnStart,
-    pendingNgaRefreshSamples.length
-  ]);
+  }, [aggregateRunState, hasOfficialSource, isCollectingNga, isLoading, officialCacheSavedAt, officialCacheStatus, officialQuery]);
 
   const groupedJobs = useMemo(() => {
     if (!meta) {
@@ -675,6 +747,39 @@ export function App() {
     }
   }
 
+  async function fetchOfficialRecruitsWithCache(
+    signal: AbortSignal,
+    options: { forceRefresh?: boolean; reason?: "manual" | "force" | "official-auto" } = {}
+  ): Promise<{ usedCache: boolean; payload?: RecruitFetchPayload }> {
+    if (!officialQuery) {
+      setFetchError("请先选择副本名称。");
+      return { usedCache: false };
+    }
+    if (!options.forceRefresh) {
+      const lookup = readOfficialRecruitCache(officialQuery);
+      setOfficialCacheStatus(lookup.status);
+      setOfficialCacheSavedAt(lookup.entry?.savedAt ?? "");
+      setOfficialCacheExpiresAt(lookup.entry?.expiresAt ?? "");
+      if (lookup.entry) {
+        setPayload(lookup.entry.payload);
+      }
+      if (shouldUseOfficialRecruitCache(lookup)) {
+        return { usedCache: true, payload: lookup.entry.payload };
+      }
+    }
+
+    const result = await fetchRecruits(officialQuery, signal);
+    const cacheEntry = writeOfficialRecruitCache(result);
+    setPayload(result);
+    setOfficialCacheStatus("fresh");
+    setOfficialCacheSavedAt(cacheEntry.savedAt);
+    setOfficialCacheExpiresAt(cacheEntry.expiresAt);
+    if (options.reason === "official-auto") {
+      setFetchError("");
+    }
+    return { usedCache: false, payload: result };
+  }
+
   async function loadRecruits() {
     if (!fbName) {
       setFetchError("请先选择副本名称。");
@@ -685,16 +790,11 @@ export function App() {
     const controller = new AbortController();
     abortRef.current = controller;
     setIsLoading(true);
+    setAggregateRunState("manual");
     setFetchError("");
 
     try {
-      const query = buildRecruitQuery({
-        fbName,
-        fbType,
-        teamComposition
-      });
-      const result = await fetchRecruits(query, controller.signal);
-      setPayload(result);
+      await fetchOfficialRecruitsWithCache(controller.signal, { forceRefresh: true, reason: "manual" });
     } catch (error) {
       const typed = error as Error;
       if (typed.name !== "AbortError") {
@@ -704,11 +804,12 @@ export function App() {
       if (abortRef.current === controller) {
         abortRef.current = null;
         setIsLoading(false);
+        setAggregateRunState("idle");
       }
     }
   }
 
-  async function runAggregateSearch() {
+  async function runAggregateSearch(options: { forceRefresh?: boolean } = {}) {
     if (!sourceFilters.length) {
       setFetchError("请至少选择一个结果来源。");
       return;
@@ -723,6 +824,7 @@ export function App() {
     const controller = new AbortController();
     abortRef.current = controller;
     const notices: string[] = [];
+    setAggregateRunState(options.forceRefresh ? "force" : "manual");
     setIsLoading(true);
     setFetchError("");
     setNgaError("");
@@ -733,13 +835,10 @@ export function App() {
           notices.push("石之家已跳过：请先选择副本名称。");
         } else {
           try {
-            const query = buildRecruitQuery({
-              fbName,
-              fbType,
-              teamComposition
+            await fetchOfficialRecruitsWithCache(controller.signal, {
+              forceRefresh: options.forceRefresh,
+              reason: options.forceRefresh ? "force" : "manual"
             });
-            const result = await fetchRecruits(query, controller.signal);
-            setPayload(result);
           } catch (error) {
             const typed = error as Error;
             if (typed.name !== "AbortError") {
@@ -750,12 +849,16 @@ export function App() {
       }
 
       if (hasNgaSource && controller.signal.aborted === false) {
-        await collectNgaSelectedBoards(controller.signal);
+        await collectNgaSelectedBoards(controller.signal, {
+          reason: "manual",
+          forceRefresh: options.forceRefresh
+        });
       }
     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
         setIsLoading(false);
+        setAggregateRunState("idle");
       }
       if (notices.length) {
         setFetchError(notices.join(" "));
@@ -779,6 +882,7 @@ export function App() {
     }
     abortRef.current = null;
     setIsLoading(false);
+    setAggregateRunState("idle");
   }
 
   function resetLocalFilters() {
@@ -900,7 +1004,10 @@ export function App() {
     }
   }
 
-  async function collectNgaSelectedBoards(signal?: AbortSignal, options: { reason?: "startup-refresh" | "manual" } = {}) {
+  async function collectNgaSelectedBoards(
+    signal?: AbortSignal,
+    options: { reason?: "startup-refresh" | "manual"; forceRefresh?: boolean } = {}
+  ) {
     const runId = ngaAutoCollectRunRef.current + 1;
     ngaAutoCollectRunRef.current = runId;
     const boardUrls = ngaSettings.selectedBoardUrls.length ? ngaSettings.selectedBoardUrls : [ngaSettings.startUrl];
@@ -912,6 +1019,7 @@ export function App() {
     let reviewedThisRun = 0;
     let archivedThisRun = 0;
     let deletedThisRun = 0;
+    let forcedDungeonReviewedThisRun = 0;
     let collectedSamples = ngaSamples;
     const fullyScannedBoardUrls = new Set<string>();
 
@@ -944,12 +1052,13 @@ export function App() {
 
     try {
       setIsOpeningNga(true);
+      const fallbackStartUrl = boardUrls[0] ?? ngaSettings.startUrl;
       const pageStatus = await fetchNgaVisiblePageStatus(ngaSettings.autoHandleInterstitial, signal).catch(() => null);
       if (pageStatus?.opened) {
-        await navigateNgaSession(boardUrls[0], signal);
+        await navigateNgaSession(fallbackStartUrl, signal);
         setNgaMessage("已复用当前 NGA 窗口，开始按地区顺序读取。");
       } else {
-        const sessionResult = await openNgaSession({ ...ngaSettings, startUrl: boardUrls[0], windowMode: ngaSettings.windowMode }, signal);
+        const sessionResult = await openNgaSession({ ...ngaSettings, startUrl: fallbackStartUrl, windowMode: ngaSettings.windowMode }, signal);
         setNgaSession(sessionResult);
       }
     } catch (error) {
@@ -968,6 +1077,47 @@ export function App() {
     }
 
     try {
+      if (options.forceRefresh) {
+        if (!fbName) {
+          setNgaMessage("NGA 强制复核需要先选择副本名称；本轮仅执行普通板块检查。");
+        } else {
+          const dungeonRefreshSamples = getNgaSamplesForDungeonForceRefresh(collectedSamples, fbName, boardUrls, totalBudget);
+          if (dungeonRefreshSamples.length > 0) {
+            setNgaProgress((current) => ({
+              ...current,
+              status: "collecting",
+              currentUrl: dungeonRefreshSamples[0]?.url ?? current.currentUrl,
+              collected: 0,
+              maxItems: dungeonRefreshSamples.length,
+              message: `正在强制复核“${fbName}”相关 NGA 缓存帖，不使用职业、时间或标签筛选。`
+            }));
+            const detailResult = await collectNgaSampleDetails(
+              dungeonRefreshSamples,
+              {
+                ...ngaSettings,
+                maxItems: dungeonRefreshSamples.length,
+                forceRefresh: true
+              },
+              signal
+            );
+            forcedDungeonReviewedThisRun += detailResult.samples.length;
+            if (detailResult.samples.length) {
+              collectedSamples = await applyNgaSamples(
+                detailResult.samples,
+                `已强制复核“${fbName}”相关 NGA 缓存帖 ${detailResult.samples.length} 条。`,
+                { baseSamples: collectedSamples }
+              );
+            }
+            setNgaProgress(detailResult.progress);
+            if (detailResult.warnings.length) {
+              setNgaError(detailResult.warnings.join("；"));
+            }
+          } else {
+            setNgaMessage(`当前缓存中没有可强制复核的“${fbName}”NGA 帖子；将继续普通板块检查。`);
+          }
+        }
+      }
+
       for (let index = 0; index < boardUrls.length; index += 1) {
         if (signal?.aborted || ngaAutoCollectRunRef.current !== runId || scannedThisRun >= totalBudget) {
           break;
@@ -995,7 +1145,12 @@ export function App() {
         }));
 
         const result = await collectNgaVisibleSamples(
-          { ...ngaSettings, maxItems: remaining, cachedSamples: buildNgaCachedTopicIndex(collectedSamples) },
+          {
+            ...ngaSettings,
+            maxItems: remaining,
+            cachedSamples: buildNgaCachedTopicIndex(collectedSamples),
+            forceRefresh: false
+          },
           signal
         );
         const scannedByBoard = Math.min(result.progress.collected || result.samples.length, remaining);
@@ -1059,9 +1214,9 @@ export function App() {
       }
       const pendingAfterRun = getNgaSamplesPendingRefresh(collectedSamples, ngaSettings.refreshIntervalHours).length;
       const completedMessage =
-        addedThisRun === 0 && reviewedThisRun === 0
+        addedThisRun === 0 && reviewedThisRun === 0 && forcedDungeonReviewedThisRun === 0
           ? `已快扫活跃窗口，无需打开正文。快扫 ${scannedThisRun}/${totalBudget} · 新帖 0 · 复核 0 · 归档 ${archivedThisRun} · 清理 ${deletedThisRun}。`
-          : `NGA 聚合检索完成。快扫 ${scannedThisRun}/${totalBudget} · 新帖 ${addedThisRun} · 复核 ${reviewedThisRun} · 归档 ${archivedThisRun} · 清理 ${deletedThisRun} · 待刷新 ${pendingAfterRun}。`;
+          : `NGA 聚合检索完成。副本强制复核 ${forcedDungeonReviewedThisRun} · 快扫 ${scannedThisRun}/${totalBudget} · 新帖 ${addedThisRun} · 复核 ${reviewedThisRun} · 归档 ${archivedThisRun} · 清理 ${deletedThisRun} · 待刷新 ${pendingAfterRun}。`;
       setNgaProgress((current) => ({
         ...current,
         status: cancelled ? "cancelled" : "completed",
@@ -1069,7 +1224,7 @@ export function App() {
         maxItems: totalBudget,
         added: addedThisRun,
         checked: checkedThisRun,
-        reviewed: reviewedThisRun,
+        reviewed: reviewedThisRun + forcedDungeonReviewedThisRun,
         fastScanned: scannedThisRun,
         archived: archivedThisRun,
         deleted: deletedThisRun,
@@ -1988,11 +2143,21 @@ export function App() {
               </button>
             ) : null}
             <button
+              className="secondary-button force-refresh-button"
+              onClick={() => void runAggregateSearch({ forceRefresh: true })}
+              disabled={!canRunAggregate}
+              title="跳过石之家缓存，并复核所选 NGA 来源"
+              aria-label="强制刷新所选来源"
+            >
+              <RotateCcw size={16} />
+              强制刷新
+            </button>
+            <button
               className="primary-button"
               onClick={() => void runAggregateSearch()}
-              disabled={isLoading || isCollectingNga || !sourceFilters.length}
+              disabled={!canRunAggregate}
             >
-              {isLoading ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+              {readLocked ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
               聚合检索
             </button>
           </div>
@@ -2000,8 +2165,11 @@ export function App() {
 
         <AggregateStatusStrip
           sourceLabel={selectedSourceLabel}
-          isLoading={isLoading || isCollectingNga}
+          runState={aggregateRunState}
+          isLoading={readLocked}
           officialFetched={payload?.fetched ?? 0}
+          officialCacheStatus={officialCacheStatus}
+          officialCacheSavedAt={officialCacheSavedAt}
           ngaProgress={ngaProgress}
           ngaSampleCount={ngaSamples.length}
           visibleCount={filtered.rows.length}
@@ -2209,19 +2377,17 @@ function ToggleButton({ active, label, onClick }: { active: boolean; label: stri
 
 function AppMark() {
   return (
-    <svg className="app-mark-icon" viewBox="0 0 40 40" aria-hidden="true">
-      <rect x="5" y="5" width="30" height="30" rx="7" />
-      <path d="M20 8 L28 18 L20 32 L12 18 Z" />
-      <path d="M20 8 L20 32 M12 18 L28 18" />
-      <circle cx="20" cy="20" r="3.2" />
-    </svg>
+    <img className="app-mark-icon" src={appIconUrl} alt="" data-testid="app-icon" draggable={false} aria-hidden="true" />
   );
 }
 
 function AggregateStatusStrip({
   sourceLabel,
+  runState,
   isLoading,
   officialFetched,
+  officialCacheStatus,
+  officialCacheSavedAt,
   ngaProgress,
   ngaSampleCount,
   visibleCount,
@@ -2230,8 +2396,11 @@ function AggregateStatusStrip({
   error
 }: {
   sourceLabel: string;
+  runState: AggregateRunState;
   isLoading: boolean;
   officialFetched: number;
+  officialCacheStatus: OfficialCacheStatus;
+  officialCacheSavedAt: string;
   ngaProgress: NgaCollectionProgress;
   ngaSampleCount: number;
   visibleCount: number;
@@ -2242,8 +2411,27 @@ function AggregateStatusStrip({
   const tone = error ? "error" : isLoading || ngaProgress.status === "collecting" ? "active" : ngaProgress.status;
   const latestText = latestCheckedAt ? formatDateTime(latestCheckedAt) : "暂无";
   const progressValue = ngaProgress.maxItems > 0 ? Math.min(100, Math.round((ngaProgress.collected / ngaProgress.maxItems) * 100)) : 0;
+  const officialCacheText =
+    officialCacheStatus === "fresh" && officialCacheSavedAt
+      ? `缓存 ${formatTimeOnly(officialCacheSavedAt)}`
+      : officialCacheStatus === "stale" && officialCacheSavedAt
+        ? `缓存过期 ${formatTimeOnly(officialCacheSavedAt)}`
+        : officialFetched
+          ? "刚刷新"
+          : "暂无";
+  const runPrefix =
+    runState === "official-auto"
+      ? "正在自动刷新石之家数据"
+      : runState === "nga-auto"
+        ? "正在自动刷新旧招募帖"
+        : runState === "force"
+          ? "正在强制刷新所选来源"
+          : "";
   const message =
     error ||
+    (runPrefix && isLoading
+      ? `${runPrefix}。${ngaProgress.message || ""}`
+      : "") ||
     (isLoading
       ? `${ngaProgress.message || "正在按所选来源读取招募。"} · 快扫 ${ngaProgress.fastScanned ?? ngaProgress.collected}/${ngaProgress.maxItems || "-"} · 新帖 ${ngaProgress.added ?? 0} · 复核 ${ngaProgress.reviewed ?? 0} · 归档 ${ngaProgress.archived ?? 0} · 清理 ${ngaProgress.deleted ?? 0}`
       : ngaProgress.message || "本地已保存招募会先展示，聚合检索会增量更新。");
@@ -2260,7 +2448,7 @@ function AggregateStatusStrip({
       </div>
       <div className="aggregate-status-metrics">
         <span>NGA已保存 {ngaSampleCount}</span>
-        <span>石之家本轮 {officialFetched || "-"}</span>
+        <span>石之家本轮 {officialFetched || "-"} · {officialCacheText}</span>
         <span>当前命中 {visibleCount}</span>
         <span>待刷新 {pendingRefreshCount}</span>
         <span>最近复核 {latestText}</span>
@@ -2452,8 +2640,11 @@ function NgaPanel({
               checked={settings.autoRefreshOnStart}
               onChange={(event) => onSettingsChange({ autoRefreshOnStart: event.target.checked })}
             />
-            启动后自动复核已保存招募
+            启动后标记待刷新招募
           </label>
+          <p className="muted helper-text">
+            默认只显示待刷新状态，不会自动打开 NGA 窗口；手动聚合或强制刷新时再走普通 WebView 读取。
+          </p>
 
           <Field label="NGA 招募板地址">
             <input
@@ -3925,6 +4116,14 @@ function formatDateTime(value: string): string {
     2,
     "0"
   )} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatTimeOnly(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function Detail({ label, value, hint }: { label: string; value: string; hint?: string }) {

@@ -452,7 +452,11 @@ async fn risingstones_nga_visible_page_status(
     state: tauri::State<'_, NgaCollectState>,
     auto_handle_interstitial: Option<bool>,
 ) -> Result<Value, String> {
-    nga_visible_page_status_payload(&app, state.inner(), auto_handle_interstitial.unwrap_or(false))
+    nga_visible_page_status_payload(
+        &app,
+        state.inner(),
+        auto_handle_interstitial.unwrap_or(false),
+    )
 }
 
 fn nga_visible_page_status_payload(
@@ -539,7 +543,9 @@ async fn risingstones_nga_clear_session(
     if data_dir.exists() {
         remove_dir_all_with_retry(&data_dir)
             .await
-            .map_err(|error| format!("NGA 本机网页状态清理失败：{error}。请关闭 NGA 窗口后重试。"))?;
+            .map_err(|error| {
+                format!("NGA 本机网页状态清理失败：{error}。请关闭 NGA 窗口后重试。")
+            })?;
         cleared = true;
     }
 
@@ -661,6 +667,7 @@ async fn risingstones_nga_collect_visible_samples(
     recent_active_days: i64,
     refresh_interval_hours: Option<i64>,
     auto_handle_interstitial: Option<bool>,
+    force_refresh: Option<bool>,
     cached_samples: Option<Vec<Value>>,
 ) -> Result<Value, String> {
     let window = app
@@ -675,6 +682,7 @@ async fn risingstones_nga_collect_visible_samples(
     let recent_active_days = recent_active_days.clamp(0, 180);
     let refresh_interval_hours = refresh_interval_hours.unwrap_or(12).clamp(1, 168);
     let auto_handle_interstitial = auto_handle_interstitial.unwrap_or(false);
+    let force_refresh = force_refresh.unwrap_or(false);
     let entry_target = resolve_nga_collect_entry_target(&current_url, auto_handle_interstitial)?;
     let _run_guard = acquire_nga_collect_run(state.inner())?;
 
@@ -741,6 +749,7 @@ async fn risingstones_nga_collect_visible_samples(
             &cache_index,
             &started_at,
             auto_handle_interstitial,
+            force_refresh,
         )
         .await?
     } else {
@@ -759,17 +768,17 @@ async fn risingstones_nga_collect_visible_samples(
         (samples, false, stats)
     };
     if include_details && !samples.is_empty() && !was_cancelled {
-        let detail_result =
-            collect_nga_detail_samples(
-                &window,
-                &state,
-                samples,
-                max_items,
-                interval,
-                &started_at,
-                auto_handle_interstitial,
-            )
-                .await?;
+        let detail_result = collect_nga_detail_samples(
+            &window,
+            &state,
+            samples,
+            max_items,
+            interval,
+            &started_at,
+            auto_handle_interstitial,
+            false,
+        )
+        .await?;
         samples = detail_result.0;
         was_cancelled = detail_result.1;
     }
@@ -878,7 +887,10 @@ async fn handle_nga_interstitial_before_collect(
         .map(|mut handled| handled.insert(current_url.to_string()))
         .unwrap_or(false);
     if !should_try {
-        return Err("继续浏览页已尝试处理但尚未回到目标页面，请在 NGA 窗口手动继续浏览后再读取。".to_string());
+        return Err(
+            "继续浏览页已尝试处理但尚未回到目标页面，请在 NGA 窗口手动继续浏览后再读取。"
+                .to_string(),
+        );
     }
 
     let clicked = click_nga_interstitial_continue(window)?;
@@ -916,7 +928,10 @@ async fn handle_nga_interstitial_before_collect(
         }
     }
 
-    Err("已尝试处理继续浏览页，但仍未回到可读取的 NGA 招募页，请在 NGA 窗口手动处理后再读取。".to_string())
+    Err(
+        "已尝试处理继续浏览页，但仍未回到可读取的 NGA 招募页，请在 NGA 窗口手动处理后再读取。"
+            .to_string(),
+    )
 }
 
 #[tauri::command]
@@ -927,6 +942,7 @@ async fn risingstones_nga_collect_sample_details(
     max_items: usize,
     request_interval_ms: u64,
     auto_handle_interstitial: Option<bool>,
+    force_refresh: Option<bool>,
 ) -> Result<Value, String> {
     let window = app
         .get_webview_window(NGA_WINDOW_LABEL)
@@ -947,6 +963,7 @@ async fn risingstones_nga_collect_sample_details(
     }
     let _run_guard = acquire_nga_collect_run(state.inner())?;
     let auto_handle_interstitial = auto_handle_interstitial.unwrap_or(false);
+    let force_refresh = force_refresh.unwrap_or(false);
 
     let started_at = now_iso();
     set_nga_progress(
@@ -973,6 +990,7 @@ async fn risingstones_nga_collect_sample_details(
         interval,
         &started_at,
         auto_handle_interstitial,
+        force_refresh,
     )
     .await?;
     let after_with_body = samples
@@ -1103,6 +1121,13 @@ fn main() {
     tauri::Builder::default()
         .manage(NgaCollectState::default())
         .plugin(tauri_plugin_opener::init())
+        .on_window_event(|window, event| {
+            if window.label() == "main"
+                && matches!(event, tauri::WindowEvent::CloseRequested { .. })
+            {
+                close_nga_child_windows(window.app_handle());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             risingstones_version,
             risingstones_meta,
@@ -1707,6 +1732,10 @@ fn normalize_nga_url(value: &str) -> Result<Url, String> {
             .map_err(|error| format!("NGA 默认地址解析失败：{error}"))?;
     }
     let _ = url.set_scheme("https");
+    if let Some(board_url) = canonicalize_nga_board_topic_url(&url) {
+        return Url::parse(&board_url)
+            .map_err(|error| format!("NGA 招募板地址规范化失败：{error}"));
+    }
     if let Some(board_url) = canonicalize_nga_board_url(&url) {
         return Url::parse(&board_url)
             .map_err(|error| format!("NGA 招募板地址规范化失败：{error}"));
@@ -1799,6 +1828,22 @@ fn canonicalize_nga_board_url(url: &Url) -> Option<String> {
         "https://bbs.nga.cn/thread.php?stid={}",
         stid.trim()
     ))
+}
+
+fn canonicalize_nga_board_topic_url(url: &Url) -> Option<String> {
+    if !is_allowed_nga_host(url.host_str().unwrap_or_default()) {
+        return None;
+    }
+    let path = url.path().to_ascii_lowercase();
+    let path_file = path.rsplit('/').next().unwrap_or(path.as_str());
+    if path_file != "read.php" {
+        return None;
+    }
+    let tid = query_value(url, "tid")?;
+    if !is_supported_nga_board_stid(&tid) {
+        return None;
+    }
+    Some(format!("https://bbs.nga.cn/thread.php?stid={}", tid.trim()))
 }
 
 fn is_same_nga_collect_target(current_url: &Url, expected_url: &Url) -> bool {
@@ -1931,6 +1976,13 @@ fn close_nga_popup_windows(app: &AppHandle) {
     }
 }
 
+fn close_nga_child_windows(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(NGA_WINDOW_LABEL) {
+        let _ = window.close();
+    }
+    close_nga_popup_windows(app);
+}
+
 fn clear_nga_popup_window_data(app: &AppHandle) {
     for (label, window) in app.webview_windows() {
         if label.starts_with(NGA_POPUP_WINDOW_PREFIX) {
@@ -1972,6 +2024,7 @@ async fn collect_nga_board_samples(
     cache_index: &BTreeMap<String, NgaCachedTopic>,
     started_at: &str,
     auto_handle_interstitial: bool,
+    force_refresh: bool,
 ) -> Result<(Vec<Value>, bool, NgaCollectStats), String> {
     let mut new_or_changed = Vec::new();
     let mut refresh_queue = Vec::new();
@@ -2119,8 +2172,12 @@ async fn collect_nga_board_samples(
             if key.is_empty() || seen.contains(&key) {
                 continue;
             }
-            match classify_nga_cache_action(&sample, cache_index.get(&key), refresh_interval_hours)
-            {
+            match classify_nga_cache_action_with_force(
+                &sample,
+                cache_index.get(&key),
+                refresh_interval_hours,
+                force_refresh,
+            ) {
                 NgaCacheAction::New => {
                     seen.insert(key);
                     stats.added += 1;
@@ -2209,6 +2266,7 @@ async fn collect_nga_board_samples(
     ))
 }
 
+#[derive(Clone, Copy)]
 enum NgaCacheAction {
     New,
     Changed,
@@ -2216,14 +2274,18 @@ enum NgaCacheAction {
     Checked,
 }
 
-fn classify_nga_cache_action(
+fn classify_nga_cache_action_with_force(
     sample: &Value,
     cached: Option<&NgaCachedTopic>,
     refresh_interval_hours: i64,
+    force_refresh: bool,
 ) -> NgaCacheAction {
     let Some(cached) = cached else {
         return NgaCacheAction::New;
     };
+    if force_refresh {
+        return NgaCacheAction::Refresh;
+    }
     let title = read_string(sample, "title");
     let updated_at = read_string(sample, "updatedAt");
     let content_hash = read_string(sample, "contentHash");
@@ -2251,6 +2313,15 @@ fn classify_nga_cache_action(
         return NgaCacheAction::Refresh;
     }
     NgaCacheAction::Checked
+}
+
+#[cfg(test)]
+fn classify_nga_cache_action(
+    sample: &Value,
+    cached: Option<&NgaCachedTopic>,
+    refresh_interval_hours: i64,
+) -> NgaCacheAction {
+    classify_nga_cache_action_with_force(sample, cached, refresh_interval_hours, false)
 }
 
 fn is_nga_cache_due(last_checked_at: &str, refresh_interval_hours: i64) -> bool {
@@ -2295,6 +2366,7 @@ async fn collect_nga_detail_samples(
     interval: u64,
     started_at: &str,
     auto_handle_interstitial: bool,
+    force_refresh: bool,
 ) -> Result<(Vec<Value>, bool), String> {
     let mut detailed = Vec::new();
     let mut cancelled = false;
@@ -2308,13 +2380,8 @@ async fn collect_nga_detail_samples(
             break;
         }
 
-        let original_body = read_string(&sample, "body");
         let url = limited_clean_string(&sample, "url", 1000);
-        let skip_detail = sample
-            .get("__skipDetail")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        if skip_detail || url.is_empty() || !original_body.trim().is_empty() {
+        if should_skip_nga_detail_sample(&sample, force_refresh) {
             detailed.push(sample);
             continue;
         }
@@ -2394,6 +2461,22 @@ async fn collect_nga_detail_samples(
     }
 
     Ok((sanitize_nga_samples(detailed, max_items), cancelled))
+}
+
+fn should_skip_nga_detail_sample(sample: &Value, force_refresh: bool) -> bool {
+    let skip_detail = sample
+        .get("__skipDetail")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if skip_detail {
+        return true;
+    }
+    let url = limited_clean_string(sample, "url", 1000);
+    if url.is_empty() {
+        return true;
+    }
+    let original_body = read_string(sample, "body");
+    !force_refresh && !original_body.trim().is_empty()
 }
 
 fn merge_nga_detail_metadata(mut detail: Value, source: &Value) -> Value {
@@ -2984,7 +3067,10 @@ fn parse_eval_page_snapshot(payload: &str) -> Result<NgaPageSnapshot, String> {
         .and_then(Value::as_str)
         .and_then(|value| Url::parse(value).ok())
         .filter(is_nga_board_url);
-    let diagnostics = object.get("diagnostics").cloned().unwrap_or_else(|| json!({}));
+    let diagnostics = object
+        .get("diagnostics")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     Ok(NgaPageSnapshot {
         samples,
         next_url,
@@ -3275,10 +3361,7 @@ fn read_string(value: &Value, key: &str) -> String {
 }
 
 fn read_usize(value: &Value, key: &str) -> usize {
-    value
-        .get(key)
-        .and_then(Value::as_u64)
-        .unwrap_or_default() as usize
+    value.get(key).and_then(Value::as_u64).unwrap_or_default() as usize
 }
 
 fn fallback_string(value: &Value, primary: &str, fallback: &str) -> String {
@@ -3316,8 +3399,10 @@ mod tests {
         .unwrap();
         assert!(extract_nga_interstitial_target(&url).is_none());
 
-        let unsupported_nga_page =
-            Url::parse("https://bbs.nga.cn/misc/adpage_insert_2.html?https://bbs.nga.cn/misc/foo.php").unwrap();
+        let unsupported_nga_page = Url::parse(
+            "https://bbs.nga.cn/misc/adpage_insert_2.html?https://bbs.nga.cn/misc/foo.php",
+        )
+        .unwrap();
         assert!(extract_nga_interstitial_target(&unsupported_nga_page).is_none());
     }
 
@@ -3333,7 +3418,10 @@ mod tests {
         let enabled = resolve_nga_collect_entry_target(&url, true).unwrap();
         match enabled {
             NgaCollectEntryTarget::Interstitial { target_url } => {
-                assert_eq!(target_url.as_str(), "https://bbs.nga.cn/read.php?tid=46723623");
+                assert_eq!(
+                    target_url.as_str(),
+                    "https://bbs.nga.cn/read.php?tid=46723623"
+                );
             }
             NgaCollectEntryTarget::Ready => panic!("继续浏览页不应被当作已就绪页面"),
         }
@@ -3372,6 +3460,12 @@ mod tests {
 
         let url = normalize_nga_url("https://bbs.nga.cn/thread.php?stid=30742942&rand=88").unwrap();
         assert_eq!(url.as_str(), "https://bbs.nga.cn/thread.php?stid=30742942");
+    }
+
+    #[test]
+    fn repairs_board_ids_accidentally_saved_as_topic_urls() {
+        let url = normalize_nga_url("https://bbs.nga.cn/read.php?tid=44366746").unwrap();
+        assert_eq!(url.as_str(), "https://bbs.nga.cn/thread.php?stid=44366746");
     }
 
     #[test]
@@ -3496,6 +3590,28 @@ mod tests {
             .get("__skipDetail")
             .and_then(Value::as_bool)
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn force_refresh_reopens_cached_detail_samples() {
+        let sample = json!({
+            "title": "神兵从零7=1ST",
+            "body": "已有正文",
+            "url": "https://bbs.nga.cn/read.php?tid=46504570",
+            "topicId": "46504570"
+        });
+
+        assert!(should_skip_nga_detail_sample(&sample, false));
+        assert!(!should_skip_nga_detail_sample(&sample, true));
+
+        let skip_detail = json!({
+            "title": "神兵从零7=1ST",
+            "body": "已有正文",
+            "url": "https://bbs.nga.cn/read.php?tid=46504570",
+            "topicId": "46504570",
+            "__skipDetail": true
+        });
+        assert!(should_skip_nga_detail_sample(&skip_detail, true));
     }
 
     #[test]

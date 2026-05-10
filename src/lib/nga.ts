@@ -61,6 +61,18 @@ export const DEFAULT_NGA_COLLECTION_SETTINGS: NgaCollectionSettings = {
   includeDetails: true
 };
 
+export function isNgaBoardIdTopicUrl(value: string): boolean {
+  try {
+    return Boolean(canonicalizeNgaBoardTopicUrl(new URL(value)));
+  } catch {
+    return false;
+  }
+}
+
+export function getNgaRefreshableTopicSamples<T extends { url?: string }>(samples: T[]): T[] {
+  return samples.filter((sample) => Boolean(sample.url) && !isNgaBoardIdTopicUrl(sample.url ?? ""));
+}
+
 const MIN_REQUEST_INTERVAL_MS = 500;
 const MAX_REQUEST_INTERVAL_MS = 15000;
 const MIN_MAX_ITEMS = 1;
@@ -88,7 +100,7 @@ const PROGRESS_RE = /(?:从0|从零|开荒|补进度|清CD|消化|过本|见[^\s
 const DUNGEON_HINT_RE =
   /(?:绝[^\s,，。；;、]{1,8}|零式|幻巧|极[^\s,，。；;、]{1,8}|[Mm]\d{1,2}[Ss]?|[Pp]\d[Ss]|[Tt][Oo][Pp]|[Dd][Ss][Rr]|[Uu][Cc][Oo][Bb]|[Uu][Ww][Uu])/g;
 const CLOSED_RE =
-  /(?:已招满|已招到|招满|招齐|满员|满了|人齐|人已齐|已齐|齐了|暂齐|暂时齐了|找齐人|暂时找齐|已满|已结束|停止招募|暂停招募|不招了|已找到|找到了|已关闭|关贴|结帖|封贴|删帖|先删|作废|放弃|已编辑|无了|closed)/i;
+  /(?:已招满|已招到|已招募齐|招募齐|招满|招齐|满员|满了|人齐|人已齐|已齐|齐了|暂齐|暂时齐了|找齐人|暂时找齐|已满|已结束|停止招募|暂停招募|不招了|已找到|找到了|已关闭|关贴|结帖|封贴|删帖|先删|作废|放弃|已编辑|无了|closed)/i;
 const NOISE_RE =
   /(?:绝区零|版务公告|游戏评测|签到|抽奖|广告|2\.8版本签到|玩转NGA|新手指南|生化危机|摄影|潮汕|雷神再临|魔兽|LPL|无畏契约|金铲铲|刺客信条|重返未来|鸣潮|海马云|手游|全球先锋赛|z9gt|太阳之井|识质存在)/i;
 const FREE_COMPANY_RE =
@@ -350,7 +362,7 @@ const DUNGEON_ALIASES: AliasEntry[] = [
   },
   {
     value: "究极神兵绝境战",
-    aliases: ["究极神兵绝境战", "绝神兵", "UWU"]
+    aliases: ["究极神兵绝境战", "绝神兵", "神兵", "兵兵", "UWU"]
   },
   {
     value: "巴哈姆特绝境战",
@@ -792,6 +804,37 @@ export function getNgaSamplesPendingDetailBackfill(samples: NgaSample[], maxItem
     .slice(0, limit);
 }
 
+export function getNgaSamplesForDungeonForceRefresh(
+  samples: NgaSample[],
+  dungeonName: string,
+  selectedBoardUrls: string[],
+  maxItems = DEFAULT_NGA_COLLECTION_SETTINGS.maxItems
+): NgaSample[] {
+  const targetDungeon = cleanText(dungeonName);
+  if (!targetDungeon) {
+    return [];
+  }
+  const limit = clampInteger(maxItems, MIN_MAX_ITEMS, NGA_MAX_SAMPLE_STORE_ITEMS);
+  const selectedBoards = new Set(
+    (selectedBoardUrls.length ? selectedBoardUrls : DEFAULT_NGA_SELECTED_BOARD_URLS)
+      .map((url) => normalizeNgaBoardUrl(url))
+      .filter(Boolean)
+  );
+
+  return mergeNgaSamples(samples, NGA_MAX_SAMPLE_STORE_ITEMS)
+    .filter((sample) => {
+      if (sample.archivedAt || !sample.url) {
+        return false;
+      }
+      const sourceBoard = normalizeNgaBoardUrl(sample.sourceBoardUrl);
+      if (sourceBoard && selectedBoards.size && !selectedBoards.has(sourceBoard)) {
+        return false;
+      }
+      return classifyNgaSample(sample).parsedFields.dungeon === targetDungeon;
+    })
+    .slice(0, limit);
+}
+
 export function computeNgaSampleContentHash(sample: Partial<NgaSample>): string {
   const text = [sample.title, sample.body, sample.updatedAt, sample.author]
     .map((value) => cleanText(value))
@@ -829,7 +872,7 @@ export function classifyNgaSample(sample: NgaSample): NgaSampleSignal {
   const normalized = sanitizeNgaSample(sample);
   const text = `${normalized.title}\n${normalized.body}`;
   const initialNoise = isNgaNoiseText(text);
-  const isClosed = matchesPattern(CLOSED_RE, text) || isClearedEditedPost(normalized);
+  const isClosed = hasClosedSignal(text) || isClearedEditedPost(normalized);
   const isSeeking = hasSeekingSignal(normalized);
   const isRecruit = matchesPattern(RECRUIT_RE, text) || hasRecruitSignal(text);
   const parser = parseNgaSampleFields(normalized, { isClosed, isNoise: initialNoise, isSeeking });
@@ -1007,9 +1050,14 @@ function parseNgaSampleFields(
     if (arcadion) {
       setField("dungeon", arcadion.value, arcadion.confidence, arcadion.snippet);
     } else {
-      const genericSavage = matchPattern(text, /(?:零式|高难|绝本|绝境战)/);
-      if (genericSavage) {
-        setField("dungeon", genericSavage.value, "low", genericSavage.snippet);
+      const currentSavage = collectCurrentSavageParts(text)[0];
+      if (currentSavage) {
+        setField("dungeon", currentSavage.value, currentSavage.confidence, currentSavage.snippet);
+      } else {
+        const genericSavage = matchPattern(text, /(?:零式|高难|绝本|绝境战)/);
+        if (genericSavage) {
+          setField("dungeon", genericSavage.value, "low", genericSavage.snippet);
+        }
       }
     }
   }
@@ -1328,7 +1376,47 @@ function findNoiseSnippet(text: string): string | undefined {
 }
 
 function findClosedSnippet(text: string): string | undefined {
-  return findPatternSnippet(text, CLOSED_RE) ?? findPatternSnippet(text, CLEARED_EDITED_LINE_RE);
+  return findClosedMatch(text)?.snippet ?? findPatternSnippet(text, CLEARED_EDITED_LINE_RE);
+}
+
+function hasClosedSignal(text: string): boolean {
+  return Boolean(findClosedMatch(text));
+}
+
+function findClosedMatch(text: string): ParsedTextMatch | null {
+  for (const match of text.matchAll(toGlobalRegExp(CLOSED_RE))) {
+    const value = match[0];
+    const index = match.index ?? 0;
+    if (!value || isProspectiveClosedContext(text, index, value)) {
+      continue;
+    }
+    return {
+      value: cleanText(value),
+      snippet: snippetAround(text, index, value.length),
+      index,
+      confidence: "medium"
+    };
+  }
+  return null;
+}
+
+function isProspectiveClosedContext(text: string, index: number, value: string): boolean {
+  const before = text
+    .slice(Math.max(0, index - 18), index)
+    .replace(/\s+/g, "");
+  const after = text
+    .slice(index + value.length, Math.min(text.length, index + value.length + 18))
+    .replace(/\s+/g, "");
+  const normalizedValue = value.replace(/\s+/g, "");
+  const prospectiveClosedWords = /^(?:人齐|齐了|招齐|招满|满员|满了|已满|已齐)$/;
+  if (!prospectiveClosedWords.test(normalizedValue)) {
+    return false;
+  }
+  const waitingBefore = /(?:等|待|等待|等到|等候|等着|等人)$/.test(before);
+  const futureAfter =
+    /^(?:后|之后|以后)(?:再)?(?:确定|确认|开打|开荒|开始|出发|安排|决定|讨论|看情况|看|说|过本|启动)?/.test(after) ||
+    /^再(?:确定|确认|开打|开荒|开始|出发|安排|决定|讨论|看情况|看|说|过本|启动)/.test(after);
+  return futureAfter && (waitingBefore || /^(?:人齐|齐了|招齐|招满|满员|满了)$/.test(normalizedValue));
 }
 
 function isNgaNoiseText(text: string): boolean {
@@ -1513,6 +1601,49 @@ function collectArcadionParts(text: string): ParsedTextMatch[] {
     });
   }
   return dedupeMatches(matches);
+}
+
+function collectCurrentSavageParts(text: string): ParsedTextMatch[] {
+  const matches: ParsedTextMatch[] = [];
+  const add = (startRaw: string, endRaw: string | undefined, index: number, length: number) => {
+    const start = parseCurrentSavageFloor(startRaw);
+    const end = endRaw ? parseCurrentSavageFloor(endRaw) : start;
+    if (!start || !end) {
+      return;
+    }
+    const from = Math.min(start, end);
+    const to = Math.max(start, end);
+    matches.push({
+      value: from === to ? `当前零式${from}层` : `当前零式${from}-${to}层`,
+      snippet: snippetAround(text, index, length),
+      index,
+      confidence: "medium"
+    });
+  };
+
+  const rangeRe = /零式\s*([1-4一二三四])\s*(?:-|~|～|到|至)\s*([1-4一二三四])\s*(?:层)?/g;
+  for (const match of text.matchAll(rangeRe)) {
+    if (match[1] && match[2]) {
+      add(match[1], match[2], match.index, match[0].length);
+    }
+  }
+
+  const layerRe = /零式\s*([1-4一二三四])\s*层/g;
+  for (const match of text.matchAll(layerRe)) {
+    if (match[1]) {
+      add(match[1], undefined, match.index, match[0].length);
+    }
+  }
+
+  return dedupeMatches(matches);
+}
+
+function parseCurrentSavageFloor(value: string): number | undefined {
+  if (/^[1-4]$/.test(value)) {
+    return Number(value);
+  }
+  const floors: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4 };
+  return floors[value];
 }
 
 function collectStrategyParts(text: string): ParsedTextMatch[] {
@@ -4951,11 +5082,12 @@ function maskContactSnippet(snippet: string): string {
 }
 
 export function shouldShowNgaSample(sample: NgaSample, mode: NgaFilterMode): boolean {
-  const signal = classifyNgaSample(sample);
+  const normalized = sanitizeNgaSample(sample);
+  const signal = classifyNgaSample(normalized);
   if (mode === "unrecognized") {
     return true;
   }
-  if (signal.isClosed || signal.isNoise) {
+  if (Boolean(normalized.closedAt) || signal.isClosed || signal.isNoise) {
     return false;
   }
   if (mode === "strict") {
@@ -5214,7 +5346,7 @@ function hasRecruitSignal(text: string): boolean {
   return (
     matchesPattern(RECRUIT_RE, text) ||
     Boolean(findSeekingSnippet(text)) ||
-    matchesPattern(CLOSED_RE, text) ||
+    hasClosedSignal(text) ||
     matchesPattern(TITLE_RECRUIT_SIGNAL_RE, text) ||
     matchesTeamSizeLike(text) ||
     matchesPattern(DUNGEON_HINT_RE, text) ||
@@ -5245,6 +5377,10 @@ function normalizeNgaStartUrl(value: unknown): string {
       return DEFAULT_NGA_COLLECTION_SETTINGS.startUrl;
     }
     url.protocol = "https:";
+    const boardFromMisparsedTopic = canonicalizeNgaBoardTopicUrl(url);
+    if (boardFromMisparsedTopic) {
+      return boardFromMisparsedTopic;
+    }
     const boardUrl = canonicalizeNgaRecruitBoardUrl(url);
     if (boardUrl) {
       return boardUrl;
@@ -5281,7 +5417,7 @@ function normalizeNgaBoardUrl(value: unknown): string {
       return "";
     }
     url.protocol = "https:";
-    const normalized = canonicalizeNgaRecruitBoardUrl(url) ?? url.toString();
+    const normalized = canonicalizeNgaBoardTopicUrl(url) ?? canonicalizeNgaRecruitBoardUrl(url) ?? url.toString();
     return NGA_RECRUIT_BOARD_URL_SET.has(normalized) ? normalized : "";
   } catch {
     return "";
@@ -5300,6 +5436,24 @@ function canonicalizeNgaRecruitBoardUrl(url: URL): string | null {
   for (const boardUrl of Object.values(NGA_RECRUIT_BOARD_URLS)) {
     const board = new URL(boardUrl);
     if (board.searchParams.get("stid") === stid) {
+      return boardUrl;
+    }
+  }
+  return null;
+}
+
+function canonicalizeNgaBoardTopicUrl(url: URL): string | null {
+  const pathFile = url.pathname.toLowerCase().split("/").pop();
+  if (pathFile !== "read.php") {
+    return null;
+  }
+  const tid = url.searchParams.get("tid")?.trim();
+  if (!tid) {
+    return null;
+  }
+  for (const boardUrl of Object.values(NGA_RECRUIT_BOARD_URLS)) {
+    const board = new URL(boardUrl);
+    if (board.searchParams.get("stid") === tid) {
       return boardUrl;
     }
   }
