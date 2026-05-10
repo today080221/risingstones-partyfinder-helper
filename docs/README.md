@@ -89,6 +89,9 @@
 - `worklog/2026-05-10-official-cache-nga-public-fetch.md`
   石之家 15 分钟轻缓存、NGA 默认 WebView 读取、公开页面快速读取下线、stale 静默刷新、统一读取锁、应用图标和当前零式别名筛选收口记录。
 
+- `worklog/2026-05-10-v1.0.0-release.md`
+  v1.0.0 首个正式版的版本同步、最终验证、tag 和 GitHub Release 发布记录。
+
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。
 
