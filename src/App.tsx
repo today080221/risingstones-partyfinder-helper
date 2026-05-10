@@ -77,6 +77,7 @@ import {
   resolveAutoHandleInterstitialPreference,
   resolveKeepLoginPreference,
   sanitizeNgaSample,
+  shouldNavigateNgaBoardBeforeScan,
   shouldShowNgaSample
 } from "./lib/nga";
 import {
@@ -1022,6 +1023,7 @@ export function App() {
     let forcedDungeonReviewedThisRun = 0;
     let collectedSamples = ngaSamples;
     const fullyScannedBoardUrls = new Set<string>();
+    let restoreBoardBeforeScan = false;
 
     if (!isTauriRuntime()) {
       setNgaMessage("浏览器预览仅合并当前页面内存/本机已有 NGA 招募；请使用桌面版读取 NGA。");
@@ -1101,6 +1103,7 @@ export function App() {
               signal
             );
             forcedDungeonReviewedThisRun += detailResult.samples.length;
+            restoreBoardBeforeScan = true;
             if (detailResult.samples.length) {
               collectedSamples = await applyNgaSamples(
                 detailResult.samples,
@@ -1126,9 +1129,10 @@ export function App() {
         const boardLabel = NGA_RECRUIT_BOARD_PRESETS.find(([url]) => url === boardUrl)?.[1] ?? "NGA 招募板";
         const remaining = totalBudget - scannedThisRun;
 
-        if (index > 0) {
+        if (shouldNavigateNgaBoardBeforeScan(index, restoreBoardBeforeScan)) {
           await navigateNgaSession(boardUrl, signal);
         }
+        restoreBoardBeforeScan = false;
 
         const ready = await waitForNgaPageReady(boardUrl, boardLabel, runId, signal);
         if (!ready) {

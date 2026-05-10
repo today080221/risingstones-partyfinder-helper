@@ -854,6 +854,10 @@ export function shouldContinueNgaCollection(collected: number, maxItems: number,
   return !cancelled && collected < clampInteger(maxItems, MIN_MAX_ITEMS, MAX_MAX_ITEMS);
 }
 
+export function shouldNavigateNgaBoardBeforeScan(index: number, restoreBoardBeforeScan: boolean): boolean {
+  return index > 0 || (index === 0 && restoreBoardBeforeScan);
+}
+
 export function shouldKeepNgaCollectedSample(sample: NgaSample): boolean {
   const normalized = sanitizeNgaSample(sample);
   if (!normalized.title && !normalized.url) {

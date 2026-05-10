@@ -308,6 +308,31 @@
   - `npm test`：7 个测试文件、166/166 通过。
   - `npm run build`：通过。
 
+## PR #2 review feedback: NGA 强刷后恢复板块页
+
+- 触发：PR #2 自动 review 提出强制刷新缓存帖详情后，NGA WebView 会停在最后一个帖子页；随后板块扫描循环对第一个已选板块没有重新导航，可能导致主板等待超时并被跳过。
+- 开始状态：
+  - 当前分支：`codex/official-cache-nga-public-fetch`。
+  - 上一条 review thread 已 resolve；当前新增 review thread 位于 `src/App.tsx`。
+  - `git status --short --branch`：工作区干净，当前分支与 `origin/codex/official-cache-nga-public-fetch` 对齐。
+  - 已执行 `git fetch origin` 和 `gh auth status`，可读取 PR review 线程。
+- 收口范围：
+  - 只修强制刷新详情复核后的板块扫描导航恢复。
+  - 不修改 NGA 默认 WebView 路径、公开快速读取状态、parser 或 cache 行为。
+  - 修复并验证后 resolve 对应 GitHub review thread。
+- 预期验证：
+  - `npm test`
+  - `npm run build`
+- 实现：
+  - 新增 `shouldNavigateNgaBoardBeforeScan`，把“详情复核后第一个板块也必须重新导航”的判断变成可测状态。
+  - `collectNgaSelectedBoards` 在强制复核缓存详情成功返回后标记 `restoreBoardBeforeScan`；随后进入板块扫描时，第一个已选板块会先显式导航回板块页，避免停留在最后一个帖子详情页。
+  - 后续板块仍沿用既有 `index > 0` 导航逻辑，不改变普通聚合读取路径。
+  - 新增单测覆盖普通首板不导航、强刷后首板导航、后续板块始终导航。
+- 验证：
+  - `npm test -- src/lib/nga.test.ts`：1 个测试文件、113/113 通过。
+  - `npm test`：7 个测试文件、167/167 通过。
+  - `npm run build`：通过。
+
 ## 遗留风险
 
 - NGA WebView DOM 或页面继续浏览逻辑如果变化，默认读取路径仍可能需要调整；当前策略是遇到站点限制或异常页面时标记 unsupported/blocked，并回到用户可见处理路径。

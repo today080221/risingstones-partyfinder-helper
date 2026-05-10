@@ -24,6 +24,7 @@ import {
   sanitizeNgaSamples,
   shouldContinueNgaCollection,
   shouldKeepNgaCollectedSample,
+  shouldNavigateNgaBoardBeforeScan,
   shouldShowNgaSample
 } from "./nga";
 
@@ -1712,6 +1713,13 @@ describe("nga cache refresh", () => {
     const selected = getNgaSamplesForDungeonForceRefresh(samples, "究极神兵绝境战", [NGA_RECRUIT_BOARD_URLS.cn], 1);
 
     expect(selected.map((sample) => sample.topicId)).toEqual(["135"]);
+  });
+
+  it("restores the first NGA board navigation after force-refreshing cached details", () => {
+    expect(shouldNavigateNgaBoardBeforeScan(0, false)).toBe(false);
+    expect(shouldNavigateNgaBoardBeforeScan(0, true)).toBe(true);
+    expect(shouldNavigateNgaBoardBeforeScan(1, false)).toBe(true);
+    expect(shouldNavigateNgaBoardBeforeScan(1, true)).toBe(true);
   });
 
   it("includes current savage aliases in current dungeon force refresh candidates", () => {
