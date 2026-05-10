@@ -14,10 +14,15 @@
 
 ## 普通用户：开箱即用
 
-推荐从 GitHub Releases 下载 Tauri 桌面便携包：
+推荐从官方 Release 页面下载 Tauri 桌面便携包：
+
+- GitHub：https://github.com/today080221/risingstones-partyfinder-helper/releases/tag/v1.0.1
+- Gitee：https://gitee.com/jianwen1126/risingstones-partyfinder-helper/releases/tag/v1.0.1
+
+下载文件名：
 
 ```text
-阿谢姆水晶（Azem's Crystal）-v1.0.1-desktop-win-x64-portable.zip
+risingstones-partyfinder-helper-v1.0.1-desktop-win-x64-portable.zip
 ```
 
 解压后双击：
@@ -28,10 +33,12 @@
 
 这个版本直接打开桌面窗口，不需要安装 Node.js，也不会启动本地浏览器或本地 Express 服务。
 
+当前 Windows 程序尚未代码签名，Chrome 或 Windows 可能因为新发布、低下载量、未签名而提示风险。请只从上面的官方 Release 页面下载，并按 Release 页面提供的 SHA256 校验文件；如果仍然不放心，请取消运行，等待后续签名版本或自行从源码构建。
+
 备用的本地服务便携包仍可使用：
 
 ```text
-阿谢姆水晶（Azem's Crystal）-v1.0.1-win-x64.zip
+risingstones-partyfinder-helper-v1.0.1-win-x64.zip
 ```
 
 解压后双击：
