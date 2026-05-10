@@ -255,6 +255,34 @@
   - `npm test`：7 个测试文件、165/165 通过。
   - `npm run build`：通过。
 
+## PR #2 follow-up: 应用展示名
+
+- 触发：用户希望应用程序命名为“阿谢姆水晶（Azem's Crystal）”。
+- 开始状态：
+  - 当前分支：`codex/official-cache-nga-public-fetch`。
+  - `git status --short --branch`：工作区干净，当前分支与 `origin/codex/official-cache-nga-public-fetch` 对齐。
+  - 已执行 `git fetch origin`，没有新的本地改动或待合并远端提交。
+- 收口范围：
+  - 只调整用户可见展示名、窗口标题、页面标题、README/功能文档和 E2E 断言。
+  - 不修改 npm package name、仓库名、Tauri identifier、更新源路径、NGA 读取路径或 cache 行为。
+  - 保留既有可执行文件命名，避免影响当前发布脚本和更新链路。
+- 预期验证：
+  - `npm test`
+  - `npm run build`
+  - `npm run test:e2e`
+  - 如 Tauri 配置变更被纳入实现，再跑 `npm run desktop:build:portable` 验证桌面配置。
+- 实现：
+  - Tauri `productName` 改为 `阿谢姆水晶`，主窗口标题改为 `阿谢姆水晶 (Azem's Crystal)`。
+  - Web `index.html` 标题、左上角主标题和副标题改为新品牌展示名。
+  - E2E 首屏断言同步到新页面标题、heading 和副标题。
+  - README、功能文档、文档入口和 Tauri 发布说明同步说明新展示名。
+  - 未修改 npm package name、仓库名、Tauri identifier、更新源路径或现有 exe 命名。
+- 验证：
+  - `npm test`：7 个测试文件、165/165 通过。
+  - `npm run build`：通过。
+  - `npm run test:e2e`：10/10 通过。
+  - `npm run desktop:build:portable`：通过，生成 `src-tauri/target/release/risingstones-partyfinder-helper.exe`，确认中文 productName/window title 配置可被 Tauri 构建链接受。
+
 ## 遗留风险
 
 - NGA WebView DOM 或页面继续浏览逻辑如果变化，默认读取路径仍可能需要调整；当前策略是遇到站点限制或异常页面时标记 unsupported/blocked，并回到用户可见处理路径。

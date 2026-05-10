@@ -1660,8 +1660,8 @@ export function App() {
             <AppMark />
           </button>
           <div>
-            <h1>副本招募筛选器</h1>
-            <p>选定副本后拉取完整分页，本地二次过滤。</p>
+            <h1>阿谢姆水晶</h1>
+            <p>Azem's Crystal · FF14 招募筛选器</p>
           </div>
           <button
             type="button"

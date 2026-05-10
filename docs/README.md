@@ -2,7 +2,7 @@
 
 ## Purpose
 
-本目录是 `risingstones-partyfinder-helper` 的项目级文档链。后续实现、验收、结构调整都应能从这里追溯到对应代码和工作记录。
+本目录是“阿谢姆水晶（Azem's Crystal）”即 `risingstones-partyfinder-helper` 的项目级文档链。后续实现、验收、结构调整都应能从这里追溯到对应代码和工作记录。
 
 ## Entries
 
@@ -10,7 +10,7 @@
   本项目采用的 Harness 工程协作规则，包括开始工作、需求对齐、结束工作时的文档更新要求。
 
 - `features/partyfinder-helper.md`
-  FF14 副本招募筛选工具的需求、接口、筛选语义和响应招募边界。
+  阿谢姆水晶（Azem's Crystal）的需求、接口、筛选语义和响应招募边界。
 
 - `features/nga-public-aggregation.md`
   NGA 本地招募聚合的需求、合规边界、样本字段、Parser 训练式工作流和 Parser v1 边界。
