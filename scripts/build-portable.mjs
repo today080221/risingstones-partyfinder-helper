@@ -6,6 +6,7 @@ import https from "node:https";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { productDisplayName, productExecutableName, releaseTargetName } from "./release-names.mjs";
+import { readReleaseConfig } from "./release-sources.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await fs.readFile(path.join(rootDir, "package.json"), "utf8"));
@@ -19,7 +20,7 @@ const runtimeDir = path.join(stageDir, "runtime");
 const exeName = productExecutableName();
 const nodeVersion = normalizeNodeVersion(process.env.PORTABLE_NODE_VERSION ?? process.version);
 const nodeRuntime = await prepareNodeRuntime(nodeVersion);
-const releaseConfig = await readReleaseConfig();
+const releaseConfig = await readReleaseConfig(rootDir);
 
 await fs.rm(stageDir, { recursive: true, force: true });
 await fs.rm(zipPath, { force: true });
@@ -78,36 +79,6 @@ await fs.writeFile(`${zipPath}.sha256`, `${zipSha256}  ${path.basename(zipPath)}
 
 console.log(`Portable package created: ${zipPath}`);
 console.log(`Portable package SHA256: ${zipSha256}`);
-
-async function readReleaseConfig() {
-  const localConfig = await readOptionalJson(path.join(rootDir, "config", "release.local.json"));
-  const githubRepo =
-    normalizeRepo(process.env.RISINGSTONES_UPDATE_GITHUB_REPO) ||
-    normalizeRepo(localConfig?.updateRepositories?.github) ||
-    "today080221/risingstones-partyfinder-helper";
-  const giteeRepo =
-    normalizeRepo(process.env.RISINGSTONES_UPDATE_GITEE_REPO) ||
-    normalizeRepo(localConfig?.updateRepositories?.gitee) ||
-    "";
-  if (process.env.RISINGSTONES_REQUIRE_DUAL_UPDATE_SOURCES === "true" && !giteeRepo) {
-    throw new Error("Missing Gitee update source while dual update sources are required for release builds.");
-  }
-
-  return {
-    updateRepositories: {
-      github: githubRepo,
-      ...(giteeRepo ? { gitee: giteeRepo } : {})
-    }
-  };
-}
-
-async function readOptionalJson(target) {
-  try {
-    return JSON.parse(await fs.readFile(target, "utf8"));
-  } catch {
-    return null;
-  }
-}
 
 async function prepareNodeRuntime(version) {
   const cacheDir = path.join(rootDir, ".cache", "node-runtime");
@@ -333,24 +304,6 @@ function normalizeNodeVersion(value) {
   return value.startsWith("v") ? value : `v${value}`;
 }
 
-function normalizeRepo(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  const trimmed = value.trim().replace(/\.git$/, "");
-  if (!trimmed) {
-    return "";
-  }
-
-  try {
-    const url = new URL(trimmed);
-    const [owner, repo] = url.pathname.split("/").filter(Boolean);
-    return owner && repo ? `${owner}/${repo.replace(/\.git$/, "")}` : "";
-  } catch {
-    return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed) ? trimmed : "";
-  }
-}
 
 async function exists(target) {
   try {

@@ -100,7 +100,7 @@ zip 内主程序：
 
 GitHub Release workflow 已接入该构建命令，打 `v*` 标签时会同时生成 Node 便携包和 Tauri 桌面便携包。
 
-桌面便携包会在 zip 根目录写入 `release-manifest.json`。如果发布机设置了 `RISINGSTONES_UPDATE_GITEE_REPO` 或本机 `config/release.local.json`，manifest 会包含国内镜像更新源；Tauri 运行时从 EXE 同目录读取该 manifest，再用于 GeoIP 推荐和更新检查。
+桌面便携包会在 zip 根目录写入 `release-manifest.json`。如果发布机设置了 `RISINGSTONES_UPDATE_GITEE_REPO`、本机 `config/release.local.json` 或 `gitee` remote，manifest 会包含国内镜像更新源；Tauri 运行时从 EXE 同目录读取该 manifest，再用于 GeoIP 推荐和更新检查。正式发布包应同时内置 GitHub/Gitee 两个更新源，并把同一份 zip 同步上传到两个 Release。
 
 ## 安装包状态
 

@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { productDisplayName, productExecutableName, releaseTargetName } from "./release-names.mjs";
+import { readReleaseConfig } from "./release-sources.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await fs.readFile(path.join(rootDir, "package.json"), "utf8"));
@@ -15,7 +16,7 @@ const stageDir = path.join(releaseDir, targetName);
 const zipPath = path.join(releaseDir, `${targetName}.zip`);
 const appExe = path.join(rootDir, "src-tauri", "target", "release", "risingstones-partyfinder-helper.exe");
 const friendlyExeName = productExecutableName();
-const releaseConfig = await readReleaseConfig();
+const releaseConfig = await readReleaseConfig(rootDir);
 
 await assertBuiltExecutable();
 await fs.rm(stageDir, { recursive: true, force: true });
@@ -87,36 +88,6 @@ async function copyOptionalPath(from, to) {
   }
 }
 
-async function readReleaseConfig() {
-  const localConfig = await readOptionalJson(path.join(rootDir, "config", "release.local.json"));
-  const githubRepo =
-    normalizeRepo(process.env.RISINGSTONES_UPDATE_GITHUB_REPO) ||
-    normalizeRepo(localConfig?.updateRepositories?.github) ||
-    "today080221/risingstones-partyfinder-helper";
-  const giteeRepo =
-    normalizeRepo(process.env.RISINGSTONES_UPDATE_GITEE_REPO) ||
-    normalizeRepo(localConfig?.updateRepositories?.gitee) ||
-    "";
-  if (process.env.RISINGSTONES_REQUIRE_DUAL_UPDATE_SOURCES === "true" && !giteeRepo) {
-    throw new Error("Missing Gitee update source while dual update sources are required for release builds.");
-  }
-
-  return {
-    updateRepositories: {
-      github: githubRepo,
-      ...(giteeRepo ? { gitee: giteeRepo } : {})
-    }
-  };
-}
-
-async function readOptionalJson(target) {
-  try {
-    return JSON.parse(await fs.readFile(target, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
 async function compressStage() {
   await fs.mkdir(releaseDir, { recursive: true });
   runPowerShell(
@@ -171,24 +142,6 @@ function psQuote(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-function normalizeRepo(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  const trimmed = value.trim().replace(/\.git$/, "");
-  if (!trimmed) {
-    return "";
-  }
-
-  try {
-    const url = new URL(trimmed);
-    const [owner, repo] = url.pathname.split("/").filter(Boolean);
-    return owner && repo ? `${owner}/${repo.replace(/\.git$/, "")}` : "";
-  } catch {
-    return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed) ? trimmed : "";
-  }
-}
 
 async function exists(target) {
   try {

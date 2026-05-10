@@ -2,13 +2,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { releaseTargetName } from "./release-names.mjs";
+import { assertZipReleaseManifestHasDualSources, resolveGiteeRepo } from "./release-sources.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await fs.readFile(path.join(rootDir, "package.json"), "utf8"));
 const version = packageJson.version;
 const tagName = process.env.RELEASE_TAG || `v${version}`;
 const token = process.env.GITEE_ACCESS_TOKEN || process.env.GITEE_TOKEN || "";
-const repo = await resolveGiteeRepo();
+const repo = await resolveGiteeRepo(rootDir);
 const zipPath =
   process.env.RELEASE_ZIP ||
   path.join(rootDir, "release", `${releaseTargetName(version, "win-x64")}.zip`);
@@ -28,6 +29,7 @@ if (!repo) {
 for (const assetPath of assetPaths) {
   await fs.access(assetPath);
 }
+assertZipReleaseManifestHasDualSources(rootDir, zipPath);
 
 console.log(`Preparing Gitee release ${tagName} with ${assetPaths.map((assetPath) => path.basename(assetPath)).join(", ")}...`);
 const release = await getOrCreateRelease(repo, tagName);
@@ -198,62 +200,6 @@ async function resolveAssetPaths(targetZipPath) {
     // The checksum is optional for backwards compatibility with older locally built packages.
   }
   return assets;
-}
-
-async function resolveGiteeRepo() {
-  const localConfig = await readOptionalJson(path.join(rootDir, "config", "release.local.json"));
-  const candidates = [
-    { source: "RISINGSTONES_UPDATE_GITEE_REPO", value: process.env.RISINGSTONES_UPDATE_GITEE_REPO },
-    { source: "config/release.local.json updateRepositories.gitee", value: localConfig?.updateRepositories?.gitee }
-  ];
-
-  for (const candidate of candidates) {
-    const rawValue = typeof candidate.value === "string" ? candidate.value.trim() : "";
-    if (!rawValue) {
-      continue;
-    }
-    if (looksLikePlaceholder(rawValue)) {
-      throw new Error(
-        `${candidate.source} still contains a placeholder. Use the real Gitee owner/repo value without angle brackets.`
-      );
-    }
-    const repo = normalizeRepo(rawValue);
-    if (repo) {
-      return repo;
-    }
-    throw new Error(`${candidate.source} is invalid. Use owner/repo or https://gitee.com/owner/repo.`);
-  }
-
-  return "";
-}
-
-async function readOptionalJson(target) {
-  try {
-    return JSON.parse(await fs.readFile(target, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function normalizeRepo(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-  const trimmed = value.trim().replace(/\.git$/, "");
-  if (!trimmed) {
-    return "";
-  }
-  try {
-    const url = new URL(trimmed);
-    const [owner, repoName] = url.pathname.split("/").filter(Boolean);
-    return owner && repoName ? `${owner}/${repoName.replace(/\.git$/, "")}` : "";
-  } catch {
-    return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed) ? trimmed : "";
-  }
-}
-
-function looksLikePlaceholder(value) {
-  return /<[^>]+>/.test(value);
 }
 
 function contentTypeFor(targetPath) {

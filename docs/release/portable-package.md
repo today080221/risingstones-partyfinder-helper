@@ -80,7 +80,7 @@ $env:PORT = "8897"
 
 - 更新源可选 `GitHub` 或 `国内镜像`。
 - GitHub 主仓库：`today080221/risingstones-partyfinder-helper`。
-- 国内镜像仓库地址不写入公开源码或文档；发布时通过环境变量或 `config/release.local.json` 注入到便携包 manifest。
+- 国内镜像仓库地址不写入公开源码或文档；发布时通过环境变量、`config/release.local.json` 或本机 `gitee` remote 注入到便携包 manifest。
 - 加载前端时会做一次 GeoIP 检测：中国大陆或检测失败默认国内镜像；如果发布包未配置国内镜像，则回退 GitHub。
 - 可以勾选“启动时检查更新”。
 - 检查结果会展示当前版本、最新版本和适合当前客户端的更新包。
@@ -103,7 +103,13 @@ Get-FileHash '.\阿谢姆水晶（Azem''s Crystal）-v1.0.0-win-x64.zip' -Algori
 
 ## 本机敏感配置
 
-如果需要在便携包中启用国内镜像节点，请在发布机本地设置环境变量：
+正式发布包应同时内置 GitHub 和 Gitee 两个更新源。打包脚本会按以下顺序读取国内镜像仓库：
+
+1. `RISINGSTONES_UPDATE_GITEE_REPO`
+2. 未提交的 `config/release.local.json`
+3. 本机 `gitee` git remote
+
+如果需要显式指定国内镜像节点，请在发布机本地设置环境变量：
 
 ```powershell
 $env:RISINGSTONES_UPDATE_GITEE_REPO = "owner/repo"
@@ -130,13 +136,13 @@ config/release.local.json
 
 ## 国内镜像 Release
 
-Gitee 如果作为国内下载节点，建议也创建同名 Release 并上传同一个 Windows 便携包 zip，否则国内镜像只能用 tag 做版本对齐。
+Gitee 如果作为国内下载节点，应创建同名 Release，并上传和 GitHub Release 相同的 Windows 便携包 zip，否则国内镜像只能用 tag 做版本对齐。
 
 SSH 公钥只用于 `git push` 等 Git 传输，不能代替 Gitee Release API 的访问令牌。发布 Gitee Release 时需要在发布机本地配置新的个人令牌；令牌一旦被贴到聊天、日志或公开位置，应立即撤销并重新生成。
 
-注意：`release:gitee` 只上传已经存在的 zip，不会改写 zip 内的 `release-manifest.json`。如果要让客户端显示并检查国内镜像，必须先在同一个 PowerShell 会话里设置 `RISINGSTONES_UPDATE_GITEE_REPO`，再重新运行 `npm run build:portable` 或 `npm run package:desktop:portable`，最后再上传新生成的 zip。
+注意：`release:gitee` 只上传已经存在的 zip，不会改写 zip 内的 `release-manifest.json`。如果要让客户端显示并检查国内镜像，必须先确保发布机存在 `RISINGSTONES_UPDATE_GITEE_REPO`、`config/release.local.json` 或 `gitee` remote，再重新运行 `npm run build:portable` 或 `npm run package:desktop:portable`，最后再上传新生成的 zip。
 
-`release:gitee` 会同时上传 zip 和旁边的 `.sha256`；遇到 socket 中断、HTTP 5xx 或 429 会自动重试。可用 `GITEE_RELEASE_RETRIES` 调整重试次数，默认 4 次。
+`release:gitee` 会同时上传 zip 和旁边的 `.sha256`；上传前会检查 zip 根目录的 `release-manifest.json`，缺少 `github` 或 `gitee` 任一更新源时直接失败。遇到 socket 中断、HTTP 5xx 或 429 会自动重试。可用 `GITEE_RELEASE_RETRIES` 调整重试次数，默认 4 次。
 
 当前品牌化命名规则：
 
@@ -149,12 +155,11 @@ release/阿谢姆水晶（Azem's Crystal）-v1.0.0-desktop-win-x64-portable.zip
 
 ```powershell
 $env:GITEE_ACCESS_TOKEN = "<本机令牌>"
-$env:RISINGSTONES_UPDATE_GITEE_REPO = "owner/repo"
 npm run build:portable
 npm run release:gitee
 ```
 
-其中 `owner/repo` 是占位写法，实际执行时要替换为真实仓库坐标，且不要带尖括号。例如填写 `some-owner/some-repo` 或完整仓库 URL。
+如果本机没有 `gitee` remote，则需要设置 `RISINGSTONES_UPDATE_GITEE_REPO`。其中 `owner/repo` 是占位写法，实际执行时要替换为真实仓库坐标，且不要带尖括号。例如填写 `some-owner/some-repo` 或完整仓库 URL。
 
 如果发布机已经配置了 `gitee` remote，也可以在 PowerShell 中从本地 Git 配置读取：
 
