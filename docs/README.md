@@ -98,6 +98,9 @@
 - `worklog/2026-05-10-dual-update-source-release-guard.md`
   正式发布包必须同时内置 GitHub/Gitee 更新源的本机打包与 Gitee 上传防呆记录。
 
+- `worklog/2026-05-10-v1.0.1-release.md`
+  v1.0.1 补丁版的版本同步、双源发布包验证和 Release 发布记录。
+
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。
 

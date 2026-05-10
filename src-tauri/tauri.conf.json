@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "阿谢姆水晶",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "identifier": "com.today080221.risingstones.partyfinderhelper",
   "build": {
     "beforeDevCommand": "npm run dev:web",

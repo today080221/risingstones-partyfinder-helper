@@ -2,6 +2,13 @@
 
 本项目遵循“面向用户说明变化”的轻量变更日志。正式 Release 建议使用 `vX.Y.Z` 标签。
 
+## 1.0.1
+
+- 重新发布正式版补丁包，确保 GitHub 与 Gitee 下载到的同一份 Windows 便携包都内置双更新源。
+- 发布脚本会自动读取本机 `gitee` remote 注入国内镜像更新源，减少手工漏配导致的单源包。
+- Gitee Release 上传前会检查 zip 内 `release-manifest.json`，缺少 GitHub 或 Gitee 任一更新源时拒绝发布。
+- 发布包和包内主程序继续使用“阿谢姆水晶（Azem's Crystal）”品牌命名。
+
 ## 0.1.11
 
 - 修复 Tauri 桌面端点击“官方详情”没有打开系统默认浏览器的问题。
