@@ -1081,7 +1081,7 @@ export function App() {
         if (!fbName) {
           setNgaMessage("NGA 强制复核需要先选择副本名称；本轮仅执行普通板块检查。");
         } else {
-          const dungeonRefreshSamples = getNgaSamplesForDungeonForceRefresh(collectedSamples, fbName, boardUrls, totalBudget);
+          const dungeonRefreshSamples = getNgaSamplesForDungeonForceRefresh(collectedSamples, fbName, boardUrls, totalBudget, meta);
           if (dungeonRefreshSamples.length > 0) {
             setNgaProgress((current) => ({
               ...current,

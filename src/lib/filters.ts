@@ -73,7 +73,7 @@ function inferNgaDungeonType(
   return selectedContext?.fb_type;
 }
 
-function matchesNgaDungeonAlias(
+export function matchesNgaDungeonAlias(
   dungeonName: string,
   selectedDungeonName: string,
   meta: MetaPayload | null

@@ -283,6 +283,31 @@
   - `npm run test:e2e`：10/10 通过。
   - `npm run desktop:build:portable`：通过，生成 `src-tauri/target/release/risingstones-partyfinder-helper.exe`，确认中文 productName/window title 配置可被 Tauri 构建链接受。
 
+## PR #2 review feedback: NGA 强刷副本别名
+
+- 触发：PR #2 自动 review 提出 `getNgaSamplesForDungeonForceRefresh` 只做精确副本名比较，导致正常筛选已可命中的当前零式别名帖不会进入强制刷新详情复核。
+- 开始状态：
+  - 当前分支：`codex/official-cache-nga-public-fetch`。
+  - PR #2 已 ready for review，review 线程未解决。
+  - `git status --short --branch`：工作区干净，当前分支与 `origin/codex/official-cache-nga-public-fetch` 对齐。
+  - 已执行 `git fetch origin` 和 `gh auth status`，可读取 PR review 线程。
+- 收口范围：
+  - 只修 NGA 强制刷新候选样本的副本匹配口径。
+  - 复用正常结果筛选中的当前零式别名判断，不新增读取路径，不改变 WebView/公开快速读取策略。
+  - 补单测覆盖 `M9S`、`当前零式1层`、`当前零式1-4层` 能进入对应官方当前零式强刷，非对应层数和非所选板块不进入。
+- 预期验证：
+  - `npm test`
+  - `npm run build`
+- 实现：
+  - 将 `matchesNgaDungeonAlias` 从正常结果筛选模块导出，供 NGA 强制刷新候选选择复用。
+  - `getNgaSamplesForDungeonForceRefresh` 新增可选 `meta` 参数；精确副本名匹配不变，同时允许当前零式别名命中所选官方副本。
+  - 前端强制刷新调用传入当前 `meta`，保证与结果列表的数据范围筛选口径一致。
+  - 新增单测覆盖官方 `阿卡狄亚零式登天斗技场 重量级1` 下 `M9S`、`当前零式1层`、`当前零式1-4层` 进入强制刷新候选，`当前零式4层` 和非所选 NGA 板块不进入。
+- 验证：
+  - `npm test -- src/lib/nga.test.ts src/lib/filters.test.ts`：2 个测试文件、141/141 通过。
+  - `npm test`：7 个测试文件、166/166 通过。
+  - `npm run build`：通过。
+
 ## 遗留风险
 
 - NGA WebView DOM 或页面继续浏览逻辑如果变化，默认读取路径仍可能需要调整；当前策略是遇到站点限制或异常页面时标记 unsupported/blocked，并回到用户可见处理路径。

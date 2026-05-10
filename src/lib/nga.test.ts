@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { NgaCollectionSettings } from "../types";
+import type { MetaPayload, NgaCollectionSettings } from "../types";
 import {
   DEFAULT_NGA_COLLECTION_SETTINGS,
   analyzeNgaSamples,
@@ -1712,6 +1712,70 @@ describe("nga cache refresh", () => {
     const selected = getNgaSamplesForDungeonForceRefresh(samples, "究极神兵绝境战", [NGA_RECRUIT_BOARD_URLS.cn], 1);
 
     expect(selected.map((sample) => sample.topicId)).toEqual(["135"]);
+  });
+
+  it("includes current savage aliases in current dungeon force refresh candidates", () => {
+    const metaWithSavage: MetaPayload = {
+      fbConfigs: [
+        { id: "m12s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 重量级4", team_composition: "满编小队", weight: 65 },
+        { id: "m11s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 重量级3", team_composition: "满编小队", weight: 64 },
+        { id: "m10s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 重量级2", team_composition: "满编小队", weight: 63 },
+        { id: "m9s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 重量级1", team_composition: "满编小队", weight: 62 },
+        { id: "m8s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 中量级4", team_composition: "满编小队", weight: 60 }
+      ],
+      labels: [],
+      areas: [],
+      jobConfig: {},
+      jobMeta: { jobs: [], jobsById: {}, childIdsByCategoryId: {} },
+      fetchedAt: "2026-05-10T00:00:00.000Z"
+    };
+    const samples = [
+      sanitizeNgaSample({
+        title: "M9S 开荒队 7=1 D4",
+        body: "缺D4，晚8-11。",
+        url: "https://bbs.nga.cn/read.php?tid=137",
+        topicId: "137",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      }),
+      sanitizeNgaSample({
+        title: "零式1层清CD 6=2",
+        body: "缺H2 D3。",
+        url: "https://bbs.nga.cn/read.php?tid=138",
+        topicId: "138",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      }),
+      sanitizeNgaSample({
+        title: "零式1-4清CD 5=3",
+        body: "缺近战和奶。",
+        url: "https://bbs.nga.cn/read.php?tid=139",
+        topicId: "139",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      }),
+      sanitizeNgaSample({
+        title: "零式4层清CD 7=1",
+        body: "缺D4。",
+        url: "https://bbs.nga.cn/read.php?tid=140",
+        topicId: "140",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      }),
+      sanitizeNgaSample({
+        title: "M9S 日服招募",
+        body: "缺D4。",
+        url: "https://bbs.nga.cn/read.php?tid=141",
+        topicId: "141",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.jp
+      })
+    ];
+
+    const selected = getNgaSamplesForDungeonForceRefresh(
+      samples,
+      "阿卡狄亚零式登天斗技场 重量级1",
+      [NGA_RECRUIT_BOARD_URLS.cn],
+      20,
+      metaWithSavage
+    );
+
+    expect(selected.map((sample) => sample.topicId)).toEqual(["137", "138", "139"]);
   });
 
   it("fills closed metadata for legacy cached samples without refreshing check time", () => {

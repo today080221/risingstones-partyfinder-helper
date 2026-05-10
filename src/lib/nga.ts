@@ -8,8 +8,10 @@ import type {
   NgaSample,
   NgaSampleAnalysisReport,
   NgaSampleCandidate,
+  MetaPayload,
   PositionKey
 } from "../types";
+import { matchesNgaDungeonAlias } from "./filters";
 import { formatRecruitDailyDuration, parseRecruitTime } from "./time";
 
 export const NGA_SAMPLE_FIELDS: Array<keyof NgaSample> = [
@@ -808,7 +810,8 @@ export function getNgaSamplesForDungeonForceRefresh(
   samples: NgaSample[],
   dungeonName: string,
   selectedBoardUrls: string[],
-  maxItems = DEFAULT_NGA_COLLECTION_SETTINGS.maxItems
+  maxItems = DEFAULT_NGA_COLLECTION_SETTINGS.maxItems,
+  meta: MetaPayload | null = null
 ): NgaSample[] {
   const targetDungeon = cleanText(dungeonName);
   if (!targetDungeon) {
@@ -830,7 +833,8 @@ export function getNgaSamplesForDungeonForceRefresh(
       if (sourceBoard && selectedBoards.size && !selectedBoards.has(sourceBoard)) {
         return false;
       }
-      return classifyNgaSample(sample).parsedFields.dungeon === targetDungeon;
+      const parsedDungeon = classifyNgaSample(sample).parsedFields.dungeon;
+      return parsedDungeon === targetDungeon || Boolean(parsedDungeon && matchesNgaDungeonAlias(parsedDungeon, targetDungeon, meta));
     })
     .slice(0, limit);
 }
