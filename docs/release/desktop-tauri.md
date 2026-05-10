@@ -96,7 +96,7 @@ zip 内主程序：
 RisingStones-PartyFinder-Desktop.exe
 ```
 
-短启动验收：主程序可启动并显示窗口标题 `FF14 副本招募筛选器`。
+短启动验收：主程序可启动并显示窗口标题 `阿谢姆水晶 (Azem's Crystal)`。
 
 GitHub Release workflow 已接入该构建命令，打 `v*` 标签时会同时生成 Node 便携包和 Tauri 桌面便携包。
 

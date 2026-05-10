@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "RisingStones PartyFinder Helper",
+  "productName": "阿谢姆水晶",
   "version": "0.1.11",
   "identifier": "com.today080221.risingstones.partyfinderhelper",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "FF14 副本招募筛选器",
+        "title": "阿谢姆水晶 (Azem's Crystal)",
         "width": 1280,
         "height": 860,
         "minWidth": 980,
@@ -28,6 +28,7 @@
   },
   "bundle": {
     "active": true,
+    "icon": ["icons/icon.ico"],
     "targets": ["nsis"],
     "windows": {
       "nsis": {

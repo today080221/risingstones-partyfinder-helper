@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { MetaPayload, NgaCollectionSettings } from "../types";
 import {
   DEFAULT_NGA_COLLECTION_SETTINGS,
   analyzeNgaSamples,
@@ -7,9 +8,12 @@ import {
   classifyNgaSample,
   cleanNgaDisplayText,
   getNgaSamplesPendingDetailBackfill,
+  getNgaSamplesForDungeonForceRefresh,
   getNgaSamplesPendingRefresh,
+  getNgaRefreshableTopicSamples,
   isNgaSampleArchived,
   mergeNgaSamplesWithDiff,
+  NGA_RECRUIT_BOARD_URLS,
   normalizeNgaCacheReviewSamples,
   normalizeNgaCollectionSettings,
   resolveAutoHandleInterstitialPreference,
@@ -20,6 +24,7 @@ import {
   sanitizeNgaSamples,
   shouldContinueNgaCollection,
   shouldKeepNgaCollectedSample,
+  shouldNavigateNgaBoardBeforeScan,
   shouldShowNgaSample
 } from "./nga";
 
@@ -31,6 +36,17 @@ describe("nga safety preferences", () => {
   it("keeps ordinary continue-page assistance disabled by default", () => {
     expect(DEFAULT_NGA_COLLECTION_SETTINGS.autoHandleInterstitial).toBe(false);
     expect(normalizeNgaCollectionSettings({}).autoHandleInterstitial).toBe(false);
+  });
+
+  it("ignores old saved public quick reading settings", () => {
+    expect("preferPublicBackgroundFetch" in DEFAULT_NGA_COLLECTION_SETTINGS).toBe(false);
+    expect("preferPublicBackgroundFetch" in normalizeNgaCollectionSettings({})).toBe(false);
+    expect(
+      "preferPublicBackgroundFetch" in
+        normalizeNgaCollectionSettings({ preferPublicBackgroundFetch: true } as Partial<NgaCollectionSettings> & {
+          preferPublicBackgroundFetch: boolean;
+        })
+    ).toBe(false);
   });
 
   it("requires explicit confirmation before enabling keep-login", async () => {
@@ -141,6 +157,28 @@ describe("nga collection controls", () => {
     });
   });
 
+  it("repairs board ids accidentally saved as read topic URLs", () => {
+    expect(
+      normalizeNgaCollectionSettings({
+        startUrl: "https://bbs.nga.cn/read.php?tid=44366746",
+        selectedBoardUrls: ["https://bbs.nga.cn/read.php?tid=44366746"]
+      })
+    ).toMatchObject({
+      startUrl: "https://bbs.nga.cn/thread.php?stid=44366746",
+      selectedBoardUrls: ["https://bbs.nga.cn/thread.php?stid=44366746"]
+    });
+  });
+
+  it("skips board ids accidentally saved as topic URLs during single-topic refresh", () => {
+    expect(
+      getNgaRefreshableTopicSamples([
+        { url: "https://bbs.nga.cn/read.php?tid=44366746" },
+        { url: "https://bbs.nga.cn/read.php?tid=46723623" },
+        { url: "" }
+      ])
+    ).toEqual([{ url: "https://bbs.nga.cn/read.php?tid=46723623" }]);
+  });
+
   it("uses single-board selection unless multi-board mode is enabled", () => {
     expect(
       normalizeNgaCollectionSettings({
@@ -222,6 +260,11 @@ describe("nga recruit visibility", () => {
       url: "https://bbs.nga.cn/read.php?tid=201",
       topicId: "201"
     });
+    const fullByRecruitDone = sanitizeNgaSample({
+      title: "零式清CD队已招募齐",
+      url: "https://bbs.nga.cn/read.php?tid=204",
+      topicId: "204"
+    });
     const noise = sanitizeNgaSample({
       title: "绝区零2.8版本签到",
       url: "https://bbs.nga.cn/read.php?tid=202",
@@ -234,6 +277,7 @@ describe("nga recruit visibility", () => {
     });
 
     expect(classifyNgaSample(full)).toMatchObject({ isClosed: true, recruitKind: "closed" });
+    expect(classifyNgaSample(fullByRecruitDone)).toMatchObject({ isClosed: true, recruitKind: "closed" });
     expect(classifyNgaSample(noise)).toMatchObject({ isNoise: true, recruitKind: "noise" });
     expect(classifyNgaSample(seeking)).toMatchObject({ recruitKind: "seeking" });
     expect(shouldShowNgaSample(full, "balanced")).toBe(false);
@@ -321,6 +365,49 @@ describe("nga parser v1", () => {
     expect(found.recruitKind).toBe("closed");
     expect(filled.recruitKind).toBe("closed");
     expect(shouldShowNgaSample(foundSample, "balanced")).toBe(false);
+  });
+
+  it("does not close posts only because they mention waiting until the party is full", () => {
+    const signal = classifyNgaSample(
+      sanitizeNgaSample({
+        title: "神兵从零7=1ST 晚8-10开打",
+        body: "从零开荒，缺ST。猫区上班，不强制开麦，等人齐后再确定具体开打日期，以及过本是否++。",
+        url: "https://bbs.nga.cn/read.php?tid=340",
+        topicId: "340"
+      })
+    );
+
+    expect(signal.recruitKind).toBe("recruit");
+    expect(signal.isClosed).toBe(false);
+    expect(signal.parsedFields.dungeon).toBe("究极神兵绝境战");
+    expect(signal.parsedFields.positions).toEqual(["ST"]);
+  });
+
+  it("still closes explicit original-poster follow-up completion text", () => {
+    const signal = classifyNgaSample(
+      sanitizeNgaSample({
+        title: "神兵从零7=1ST 晚8-10开打",
+        body: "从零开荒，缺ST。猫区上班，不强制开麦。\n\n人已齐，感谢大家。",
+        url: "https://bbs.nga.cn/read.php?tid=341",
+        topicId: "341"
+      })
+    );
+
+    expect(signal.recruitKind).toBe("closed");
+    expect(signal.isClosed).toBe(true);
+  });
+
+  it("keeps cached closedAt rows hidden even if current text no longer matches closed wording", () => {
+    const sample = sanitizeNgaSample({
+      title: "神兵从零7=1ST 晚8-10开打",
+      body: "从零开荒，缺ST。猫区上班，不强制开麦，等人齐后再确定具体开打日期，以及过本是否++。",
+      closedAt: "2026-05-10T00:26:33.090Z",
+      url: "https://bbs.nga.cn/read.php?tid=342",
+      topicId: "342"
+    });
+
+    expect(classifyNgaSample(sample).isClosed).toBe(false);
+    expect(shouldShowNgaSample(sample, "balanced")).toBe(false);
   });
 
   it("keeps roster rotation separate from normal vacancy positions", () => {
@@ -554,6 +641,44 @@ describe("nga parser v1", () => {
     );
 
     expect(signal.parsedFields.dungeon).toBe("阿卡迪亚登天斗技场 M9S-M12S");
+    expect(signal.parseConfidence.dungeon).toBe("high");
+  });
+
+  it("keeps current savage layer shorthand as contextual dungeon evidence", () => {
+    const floor = classifyNgaSample(
+      sanitizeNgaSample({
+        title: "[跨大区] 零式4层门神开荒 7=1 H2",
+        body: "晚8-11，攻略野队一套。",
+        url: "https://bbs.nga.cn/read.php?tid=342",
+        topicId: "342"
+      })
+    );
+    const range = classifyNgaSample(
+      sanitizeNgaSample({
+        title: "零式1-4清cd队招募 D4",
+        body: "周二晚清CD。",
+        url: "https://bbs.nga.cn/read.php?tid=343",
+        topicId: "343"
+      })
+    );
+
+    expect(floor.parsedFields.dungeon).toBe("当前零式4层");
+    expect(floor.parseConfidence.dungeon).toBe("medium");
+    expect(range.parsedFields.dungeon).toBe("当前零式1-4层");
+    expect(range.parseConfidence.dungeon).toBe("medium");
+  });
+
+  it("does not let savage resume wording override an explicit ultimate dungeon", () => {
+    const signal = classifyNgaSample(
+      sanitizeNgaSample({
+        title: "[跨大区] 绝妖星首月队 6=2 MT D4",
+        body: "要求有零式4层或 M9S-M12S 首周经验，晚8-11。",
+        url: "https://bbs.nga.cn/read.php?tid=344",
+        topicId: "344"
+      })
+    );
+
+    expect(signal.parsedFields.dungeon).toBe("妖星乱舞绝境战");
     expect(signal.parseConfidence.dungeon).toBe("high");
   });
 
@@ -965,6 +1090,42 @@ describe("nga parser v1", () => {
     );
 
     expect(signal.parsedFields.dungeon).toBe("巴哈姆特绝境战");
+  });
+
+  it("recognizes common ultimate weapon shorthands", () => {
+    const recruit = classifyNgaSample(
+      sanitizeNgaSample({
+        title: "神兵复健队2=5",
+        body: "晚8-10，缺MT ST H1 H2 D1，过本复健。",
+        url: "https://bbs.nga.cn/read.php?tid=3336",
+        topicId: "3336"
+      })
+    );
+    const seeking = classifyNgaSample(
+      sanitizeNgaSample({
+        title: "H1复健人神兵求职",
+        body: "可打 H1，跨大区，神兵复健/从零都可。",
+        url: "https://bbs.nga.cn/read.php?tid=3337",
+        topicId: "3337"
+      })
+    );
+    const bingbing = classifyNgaSample(
+      sanitizeNgaSample({
+        title: "兵兵从零7=1ST 晚8-10开打",
+        body: "已有队友稳定，缺ST，攻略自查。",
+        url: "https://bbs.nga.cn/read.php?tid=3338",
+        topicId: "3338"
+      })
+    );
+
+    expect(recruit.recruitKind).toBe("recruit");
+    expect(recruit.parsedFields.dungeon).toBe("究极神兵绝境战");
+    expect(recruit.parsedFields.positions).toEqual(expect.arrayContaining(["MT", "ST", "H1", "H2", "D1"]));
+    expect(seeking.recruitKind).toBe("seeking");
+    expect(seeking.parsedFields.dungeon).toBe("究极神兵绝境战");
+    expect(seeking.parsedFields.playerAvailablePositions).toEqual(["H1"]);
+    expect(bingbing.parsedFields.dungeon).toBe("究极神兵绝境战");
+    expect(bingbing.parsedFields.positions).toEqual(["ST"]);
   });
 
   it("distinguishes neutral plugin stance, positive tech use, and anti-cheat wording", () => {
@@ -1483,6 +1644,146 @@ describe("nga cache refresh", () => {
     ];
 
     expect(getNgaSamplesPendingRefresh(samples, 12, new Date("2026-05-09T22:00:00.000Z"))).toHaveLength(0);
+  });
+
+  it("selects current dungeon cached samples for force refresh without fine filters", () => {
+    const samples = [
+      sanitizeNgaSample({
+        title: "神兵从零7=1ST 晚8-10开打",
+        body: "从零开荒，缺ST。等人齐后再确定具体开打日期。",
+        url: "https://bbs.nga.cn/read.php?tid=130",
+        topicId: "130",
+        closedAt: "2026-05-10T00:26:33.090Z",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      }),
+      sanitizeNgaSample({
+        title: "H1复健人神兵求职",
+        body: "可打 H1，晚上八点后都可以。",
+        url: "https://bbs.nga.cn/read.php?tid=131",
+        topicId: "131",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      }),
+      sanitizeNgaSample({
+        title: "绝妖星 7=1 D2",
+        body: "晚8-10，缺D2。",
+        url: "https://bbs.nga.cn/read.php?tid=132",
+        topicId: "132",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      }),
+      sanitizeNgaSample({
+        title: "兵兵从零7=1ST",
+        body: "缺ST。",
+        url: "https://bbs.nga.cn/read.php?tid=133",
+        topicId: "133",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.jp
+      }),
+      sanitizeNgaSample({
+        title: "绝神兵 已归档",
+        body: "缺D3。",
+        url: "https://bbs.nga.cn/read.php?tid=134",
+        topicId: "134",
+        archivedAt: "2026-05-09T00:00:00.000Z",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      })
+    ];
+
+    const selected = getNgaSamplesForDungeonForceRefresh(samples, "究极神兵绝境战", [NGA_RECRUIT_BOARD_URLS.cn], 20);
+
+    expect(selected.map((sample) => sample.topicId)).toEqual(["130", "131"]);
+  });
+
+  it("limits current dungeon force refresh candidates", () => {
+    const samples = [
+      sanitizeNgaSample({
+        title: "神兵复健队2=5",
+        body: "缺MT ST H1 H2 D1。",
+        url: "https://bbs.nga.cn/read.php?tid=135",
+        topicId: "135",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      }),
+      sanitizeNgaSample({
+        title: "绝神兵 D3",
+        body: "缺D3。",
+        url: "https://bbs.nga.cn/read.php?tid=136",
+        topicId: "136",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      })
+    ];
+
+    const selected = getNgaSamplesForDungeonForceRefresh(samples, "究极神兵绝境战", [NGA_RECRUIT_BOARD_URLS.cn], 1);
+
+    expect(selected.map((sample) => sample.topicId)).toEqual(["135"]);
+  });
+
+  it("restores the first NGA board navigation after force-refreshing cached details", () => {
+    expect(shouldNavigateNgaBoardBeforeScan(0, false)).toBe(false);
+    expect(shouldNavigateNgaBoardBeforeScan(0, true)).toBe(true);
+    expect(shouldNavigateNgaBoardBeforeScan(1, false)).toBe(true);
+    expect(shouldNavigateNgaBoardBeforeScan(1, true)).toBe(true);
+  });
+
+  it("includes current savage aliases in current dungeon force refresh candidates", () => {
+    const metaWithSavage: MetaPayload = {
+      fbConfigs: [
+        { id: "m12s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 重量级4", team_composition: "满编小队", weight: 65 },
+        { id: "m11s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 重量级3", team_composition: "满编小队", weight: 64 },
+        { id: "m10s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 重量级2", team_composition: "满编小队", weight: 63 },
+        { id: "m9s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 重量级1", team_composition: "满编小队", weight: 62 },
+        { id: "m8s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 中量级4", team_composition: "满编小队", weight: 60 }
+      ],
+      labels: [],
+      areas: [],
+      jobConfig: {},
+      jobMeta: { jobs: [], jobsById: {}, childIdsByCategoryId: {} },
+      fetchedAt: "2026-05-10T00:00:00.000Z"
+    };
+    const samples = [
+      sanitizeNgaSample({
+        title: "M9S 开荒队 7=1 D4",
+        body: "缺D4，晚8-11。",
+        url: "https://bbs.nga.cn/read.php?tid=137",
+        topicId: "137",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      }),
+      sanitizeNgaSample({
+        title: "零式1层清CD 6=2",
+        body: "缺H2 D3。",
+        url: "https://bbs.nga.cn/read.php?tid=138",
+        topicId: "138",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      }),
+      sanitizeNgaSample({
+        title: "零式1-4清CD 5=3",
+        body: "缺近战和奶。",
+        url: "https://bbs.nga.cn/read.php?tid=139",
+        topicId: "139",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      }),
+      sanitizeNgaSample({
+        title: "零式4层清CD 7=1",
+        body: "缺D4。",
+        url: "https://bbs.nga.cn/read.php?tid=140",
+        topicId: "140",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.cn
+      }),
+      sanitizeNgaSample({
+        title: "M9S 日服招募",
+        body: "缺D4。",
+        url: "https://bbs.nga.cn/read.php?tid=141",
+        topicId: "141",
+        sourceBoardUrl: NGA_RECRUIT_BOARD_URLS.jp
+      })
+    ];
+
+    const selected = getNgaSamplesForDungeonForceRefresh(
+      samples,
+      "阿卡狄亚零式登天斗技场 重量级1",
+      [NGA_RECRUIT_BOARD_URLS.cn],
+      20,
+      metaWithSavage
+    );
+
+    expect(selected.map((sample) => sample.topicId)).toEqual(["137", "138", "139"]);
   });
 
   it("fills closed metadata for legacy cached samples without refreshing check time", () => {

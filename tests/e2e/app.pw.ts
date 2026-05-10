@@ -150,8 +150,10 @@ test("renders the first screen and NGA panel without runtime errors", async ({ p
 
   await page.goto("/");
 
-  await expect(page).toHaveTitle("FF14 副本招募筛选器");
-  await expect(page.getByRole("heading", { name: "副本招募筛选器" })).toBeVisible();
+  await expect(page).toHaveTitle("阿谢姆水晶 (Azem's Crystal)");
+  await expect(page.getByRole("heading", { name: "阿谢姆水晶" })).toBeVisible();
+  await expect(page.getByText("Azem's Crystal · FF14 招募筛选器")).toBeVisible();
+  await expect(page.getByTestId("app-icon")).toHaveAttribute("src", /ashem-crystal\.png/);
   await expect(page.getByText("数据来源")).toBeVisible();
   await expect(page.locator(".source-toggle-grid input")).toHaveCount(0);
   await expect(page.locator(".source-toggle-grid").getByRole("button", { name: "石之家" })).toHaveAttribute("aria-pressed", "true");

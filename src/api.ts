@@ -180,6 +180,7 @@ export async function fetchNgaVisiblePageStatus(
 export async function collectNgaVisibleSamples(
   settings: Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs" | "includeDetails" | "recentActiveDays" | "refreshIntervalHours" | "autoHandleInterstitial"> & {
     cachedSamples?: NgaCachedTopic[];
+    forceRefresh?: boolean;
   },
   signal?: AbortSignal
 ): Promise<NgaCollectPayload> {
@@ -195,6 +196,7 @@ export async function collectNgaVisibleSamples(
       recentActiveDays: settings.recentActiveDays,
       refreshIntervalHours: settings.refreshIntervalHours,
       autoHandleInterstitial: settings.autoHandleInterstitial,
+      forceRefresh: settings.forceRefresh ?? false,
       cachedSamples: settings.cachedSamples ?? []
     },
     signal
@@ -228,7 +230,9 @@ export async function saveNgaSamples(samples: NgaSample[], signal?: AbortSignal)
 
 export async function collectNgaSampleDetails(
   samples: NgaSample[],
-  settings: Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs" | "autoHandleInterstitial">,
+  settings: Pick<NgaCollectionSettings, "maxItems" | "requestIntervalMs" | "autoHandleInterstitial"> & {
+    forceRefresh?: boolean;
+  },
   signal?: AbortSignal
 ): Promise<NgaDetailCollectPayload> {
   if (!isTauriRuntime()) {
@@ -240,7 +244,8 @@ export async function collectNgaSampleDetails(
       samples,
       maxItems: settings.maxItems,
       requestIntervalMs: settings.requestIntervalMs,
-      autoHandleInterstitial: settings.autoHandleInterstitial
+      autoHandleInterstitial: settings.autoHandleInterstitial,
+      forceRefresh: settings.forceRefresh ?? false
     },
     signal
   );

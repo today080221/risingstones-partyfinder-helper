@@ -2,7 +2,7 @@
 
 ## Purpose
 
-本目录是 `risingstones-partyfinder-helper` 的项目级文档链。后续实现、验收、结构调整都应能从这里追溯到对应代码和工作记录。
+本目录是“阿谢姆水晶（Azem's Crystal）”即 `risingstones-partyfinder-helper` 的项目级文档链。后续实现、验收、结构调整都应能从这里追溯到对应代码和工作记录。
 
 ## Entries
 
@@ -10,7 +10,7 @@
   本项目采用的 Harness 工程协作规则，包括开始工作、需求对齐、结束工作时的文档更新要求。
 
 - `features/partyfinder-helper.md`
-  FF14 副本招募筛选工具的需求、接口、筛选语义和响应招募边界。
+  阿谢姆水晶（Azem's Crystal）的需求、接口、筛选语义和响应招募边界。
 
 - `features/nga-public-aggregation.md`
   NGA 本地招募聚合的需求、合规边界、样本字段、Parser 训练式工作流和 Parser v1 边界。
@@ -85,6 +85,9 @@
 
 - `worklog/2026-05-10-pr-review-public-aggregation.md`
   PR review 后的公开招募聚合口径、继续浏览页辅助处理显式授权、Tauri 取消/并发加固和验证记录。
+
+- `worklog/2026-05-10-official-cache-nga-public-fetch.md`
+  石之家 15 分钟轻缓存、NGA 默认 WebView 读取、公开页面快速读取下线、stale 静默刷新、统一读取锁、应用图标和当前零式别名筛选收口记录。
 
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。

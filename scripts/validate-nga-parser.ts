@@ -73,6 +73,67 @@ const FIXTURES: Fixture[] = [
     }
   },
   {
+    name: "bare ultimate weapon shorthand maps to official dungeon",
+    sample: {
+      title: "神兵复健队2=5",
+      body: "晚8-10，缺MT ST H1 H2 D1，过本复健。"
+    },
+    expect: {
+      recruitKind: "recruit",
+      dungeon: "究极神兵绝境战",
+      positionsInclude: ["MT", "ST", "H1", "H2", "D1"]
+    }
+  },
+  {
+    name: "bingbing shorthand maps to ultimate weapon",
+    sample: {
+      title: "兵兵从零7=1ST 晚8-10开打",
+      body: "已有队友稳定，缺ST，攻略自查。"
+    },
+    expect: {
+      recruitKind: "recruit",
+      dungeon: "究极神兵绝境战",
+      positionsExact: ["ST"]
+    }
+  },
+  {
+    name: "seeking ultimate weapon shorthand keeps player seeking",
+    sample: {
+      title: "H1复健人神兵求职",
+      body: "可打 H1，跨大区，神兵复健/从零都可。"
+    },
+    expect: {
+      recruitKind: "seeking",
+      dungeon: "究极神兵绝境战"
+    }
+  },
+  {
+    name: "waiting until full does not close ultimate weapon recruit",
+    sample: {
+      title: "神兵从零7=1ST 晚8-10开打",
+      body: "从零开荒，缺ST。猫区上班，不强制开麦，等人齐后再确定具体开打日期，以及过本是否++。"
+    },
+    expect: {
+      recruitKind: "recruit",
+      isClosed: false,
+      dungeon: "究极神兵绝境战",
+      positionsExact: ["ST"]
+    }
+  },
+  {
+    name: "explicit original-poster follow-up closes ultimate weapon recruit",
+    sample: {
+      title: "神兵从零7=1ST 晚8-10开打",
+      body: "从零开荒，缺ST。猫区上班，不强制开麦。\n\n人已齐，感谢大家。"
+    },
+    expect: {
+      recruitKind: "closed",
+      isClosed: true,
+      dungeon: "究极神兵绝境战",
+      positionsExact: ["ST"]
+    }
+  },
+  {
     name: "role ordered composition keeps healer flex vacancy",
     sample: {
       title: "[陆行鸟区]绝妖星上2休1，7=1奶，预计1~1.5月通关，可跨区",

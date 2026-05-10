@@ -8,7 +8,9 @@
 
 - 开始工作：更新或创建工作记录，写明目标、当前状态、待确认风险。
 - 需求对齐后：更新功能文档，记录已确认需求、默认假设、明确排除项。
+- 计划改变：如果实现计划、接口、安全边界、默认值、验证口径或交互路径发生变化，必须当场更新对应 worklog 和 feature 文档，不等到结束时一次性补写。
 - 实现过程中：如果接口、筛选语义、安全边界或目录结构变化，同步更新对应文档。
+- 接手中断工作区：先记录只读盘点和当前验证未确认状态；不要沿用旧 thread 的“验证通过”结论，除非本轮重新跑完对应命令。
 - 结束工作：更新工作记录中的实现摘要、验证结果、遗留风险和下一步建议。
 
 ## Docs Chain Expectations
@@ -21,7 +23,8 @@
 ## Merge And Release Precheck
 
 - 准备 merge 或 release 前，先确认 `git fetch origin` 后当前分支没有落后远端，再记录工作树范围。
-- 常规 final QA 至少覆盖：`npm test`、`npm run build`、`cargo check --manifest-path src-tauri/Cargo.toml`、`cargo test --manifest-path src-tauri/Cargo.toml`、`npm run test:e2e`。
+- 常规 final QA 至少覆盖：`npm test`、`npm run build`、`cargo check --manifest-path src-tauri/Cargo.toml`、`cargo test --manifest-path src-tauri/Cargo.toml`、`npm run test:e2e`、`npm run validate:nga-parser`。
+- 改到 Tauri 配置、图标、打包资源或原生命令层时，PR 前补跑 `cargo fmt --manifest-path src-tauri/Cargo.toml --check` 和 `npm run desktop:build:portable`，并把产物路径或失败原因写进 worklog。
 - NGA parser harness 需要同时记录 curated 断言结果和本机样本池统计；如果 curated 断言全过，但命令仅因本机增量样本池不等于历史固定数量而返回非零，应在 worklog 中明确标为数据基线差异。
 - 若用户要求提交前确认，先给出 QA pass/fail、已改文件范围和建议提交信息，再等待用户确认后 commit/push。
 
@@ -40,4 +43,5 @@
 - 不保存用户账号、Cookie、Token 或官方站点登录态。
 - 不自动提交会影响账号状态的请求。
 - 对官方接口加分页范围、请求间隔、取消和错误提示，避免无界批量请求。
+- NGA 读取默认只走用户可见 WebView；公开页面快速读取已下线，不作为默认、实验或诊断入口保留。
 - 文档中不得写入任何密钥、令牌、Cookie 或私人联系信息。

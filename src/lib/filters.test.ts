@@ -563,6 +563,51 @@ describe("local recruit filtering", () => {
       2
     ]);
   });
+
+  it("matches current savage aliases from cached NGA rows to official top-tier dungeons", () => {
+    const rows = [
+      recruit({ id: 1, source: "nga", fb_type: "NGA", fb_name: "阿卡迪亚登天斗技场 M12S" }),
+      recruit({ id: 2, source: "nga", fb_type: "NGA", fb_name: "阿卡迪亚登天斗技场 M9S-M12S" }),
+      recruit({ id: 3, source: "nga", fb_type: "NGA", fb_name: "当前零式4层" }),
+      recruit({ id: 4, source: "nga", fb_type: "NGA", fb_name: "当前零式1-4层" }),
+      recruit({ id: 5, source: "nga", fb_type: "NGA", fb_name: "妖星乱舞绝境战" }),
+      recruit({ id: 6, source: "nga", fb_type: "NGA", fb_name: "阿卡迪亚登天斗技场 M1S-M4S" })
+    ];
+    const metaWithSavage: MetaPayload = {
+      ...meta,
+      fbConfigs: [
+        { id: "m12s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 重量级4", team_composition: "满编小队", weight: 65 },
+        { id: "m11s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 重量级3", team_composition: "满编小队", weight: 64 },
+        { id: "m10s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 重量级2", team_composition: "满编小队", weight: 63 },
+        { id: "m9s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 重量级1", team_composition: "满编小队", weight: 62 },
+        { id: "m8s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 中量级4", team_composition: "满编小队", weight: 60 },
+        { id: "m4s", fb_type: "零式", fb_name: "阿卡狄亚零式登天斗技场 轻量级4", team_composition: "满编小队", weight: 56 }
+      ]
+    };
+
+    expect(
+      filterRecruitRowsByDataRange(rows, { fbType: "零式", fbName: "阿卡狄亚零式登天斗技场 重量级4" }, metaWithSavage).map(
+        (row) => row.id
+      )
+    ).toEqual([1, 2, 3, 4]);
+    expect(
+      filterRecruitRowsByDataRange(rows, { fbType: "零式", fbName: "阿卡狄亚零式登天斗技场 重量级3" }, metaWithSavage).map(
+        (row) => row.id
+      )
+    ).toEqual([2, 4]);
+    expect(
+      filterRecruitRowsByDataRange(rows, { fbType: "零式", fbName: "阿卡狄亚零式登天斗技场 轻量级4" }, metaWithSavage).map(
+        (row) => row.id
+      )
+    ).toEqual([6]);
+    expect(filterRecruitRowsByDataRange(rows, { fbType: "零式", fbName: "" }, metaWithSavage).map((row) => row.id)).toEqual([
+      1,
+      2,
+      3,
+      4,
+      6
+    ]);
+  });
 });
 
 describe("pagination helpers", () => {
