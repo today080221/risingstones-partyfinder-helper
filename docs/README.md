@@ -92,6 +92,9 @@
 - `worklog/2026-05-10-v1.0.0-release.md`
   v1.0.0 首个正式版的版本同步、最终验证、tag 和 GitHub Release 发布记录。
 
+- `worklog/2026-05-10-branded-release-artifacts.md`
+  发布 zip 和包内 exe 改用“阿谢姆水晶（Azem's Crystal）”品牌命名的记录。
+
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。
 

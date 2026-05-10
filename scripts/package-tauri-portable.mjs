@@ -4,16 +4,17 @@ import fs from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { productDisplayName, productExecutableName, releaseTargetName } from "./release-names.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await fs.readFile(path.join(rootDir, "package.json"), "utf8"));
 const version = packageJson.version;
-const targetName = `${packageJson.name}-v${version}-desktop-win-x64-portable`;
+const targetName = releaseTargetName(version, "desktop-win-x64-portable");
 const releaseDir = path.join(rootDir, "release");
 const stageDir = path.join(releaseDir, targetName);
 const zipPath = path.join(releaseDir, `${targetName}.zip`);
 const appExe = path.join(rootDir, "src-tauri", "target", "release", "risingstones-partyfinder-helper.exe");
-const friendlyExeName = "RisingStones-PartyFinder-Desktop.exe";
+const friendlyExeName = productExecutableName();
 const releaseConfig = await readReleaseConfig();
 
 await assertBuiltExecutable();
@@ -40,9 +41,11 @@ await fs.writeFile(
   `${JSON.stringify(
     {
       name: packageJson.name,
+      displayName: productDisplayName,
       version,
       target: "desktop-win-x64-portable",
       runtime: "desktop",
+      executableName: friendlyExeName,
       builtAt: new Date().toISOString(),
       sourceRepository: "https://github.com/today080221/risingstones-partyfinder-helper",
       updateRepositories: releaseConfig.updateRepositories
@@ -133,7 +136,7 @@ async function sha256File(target) {
 }
 
 function createReadme() {
-  return `FF14 副本招募筛选工具 - Tauri 桌面便携版
+  return `${productDisplayName} - Tauri 桌面便携版
 
 使用方式：
 1. 解压整个 zip。

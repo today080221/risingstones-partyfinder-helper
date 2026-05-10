@@ -5,17 +5,18 @@ import { createReadStream, createWriteStream } from "node:fs";
 import https from "node:https";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { productDisplayName, productExecutableName, releaseTargetName } from "./release-names.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await fs.readFile(path.join(rootDir, "package.json"), "utf8"));
 const version = packageJson.version;
-const targetName = `${packageJson.name}-v${version}-win-x64`;
+const targetName = releaseTargetName(version, "win-x64");
 const releaseDir = path.join(rootDir, "release");
 const stageDir = path.join(releaseDir, targetName);
 const zipPath = path.join(releaseDir, `${targetName}.zip`);
 const appDir = path.join(stageDir, "app");
 const runtimeDir = path.join(stageDir, "runtime");
-const exeName = "RisingStones-PartyFinder.exe";
+const exeName = productExecutableName();
 const nodeVersion = normalizeNodeVersion(process.env.PORTABLE_NODE_VERSION ?? process.version);
 const nodeRuntime = await prepareNodeRuntime(nodeVersion);
 const releaseConfig = await readReleaseConfig();
@@ -52,9 +53,11 @@ await fs.writeFile(
   `${JSON.stringify(
     {
       name: packageJson.name,
+      displayName: productDisplayName,
       version,
       target: "win-x64",
       runtime: "portable",
+      executableName: exeName,
       builtAt: new Date().toISOString(),
       nodeRuntime: {
         version: nodeVersion,
@@ -221,7 +224,7 @@ if "%PORT%"=="" set PORT=8797
 if "%AUTO_OPEN_BROWSER%"=="" set AUTO_OPEN_BROWSER=true
 set SERVE_STATIC=true
 set STATIC_DIR=%~dp0app\\dist
-echo FF14 RisingStones Party Finder Helper
+echo ${productDisplayName}
 echo Local URL: http://127.0.0.1:%PORT%
 echo Close this window to stop the local service.
 "%~dp0runtime\\node.exe" "%~dp0app\\server.cjs"
@@ -232,11 +235,11 @@ pause
 }
 
 function createPortableReadme() {
-  return `FF14 副本招募筛选工具 - Windows 便携包
+  return `${productDisplayName} - Windows 便携包
 
 使用方式：
 1. 解压整个 zip。
-2. 双击 RisingStones-PartyFinder.exe。
+2. 双击 ${exeName}。
 3. 浏览器会打开 http://127.0.0.1:8797。
 4. 关闭命令行窗口即可停止本地服务。
 
@@ -306,7 +309,7 @@ process.env.SERVE_STATIC ||= "true";
 process.env.STATIC_DIR ||= path.join(appRoot, "app", "dist");
 process.env.AUTO_OPEN_BROWSER ||= "true";
 
-console.log("FF14 RisingStones Party Finder Helper");
+console.log(${JSON.stringify(productDisplayName)});
 console.log("Local URL: http://127.0.0.1:" + process.env.PORT);
 console.log("Close this window to stop the local service.");
 

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { releaseTargetName } from "./release-names.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await fs.readFile(path.join(rootDir, "package.json"), "utf8"));
@@ -10,7 +11,7 @@ const token = process.env.GITEE_ACCESS_TOKEN || process.env.GITEE_TOKEN || "";
 const repo = await resolveGiteeRepo();
 const zipPath =
   process.env.RELEASE_ZIP ||
-  path.join(rootDir, "release", `${packageJson.name}-v${version}-win-x64.zip`);
+  path.join(rootDir, "release", `${releaseTargetName(version, "win-x64")}.zip`);
 const assetPaths = await resolveAssetPaths(zipPath);
 const maxRetries = readRetryCount();
 

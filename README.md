@@ -17,13 +17,13 @@
 推荐从 GitHub Releases 下载 Tauri 桌面便携包：
 
 ```text
-risingstones-partyfinder-helper-v0.1.11-desktop-win-x64-portable.zip
+阿谢姆水晶（Azem's Crystal）-v1.0.0-desktop-win-x64-portable.zip
 ```
 
 解压后双击：
 
 ```text
-RisingStones-PartyFinder-Desktop.exe
+阿谢姆水晶（Azem's Crystal）.exe
 ```
 
 这个版本直接打开桌面窗口，不需要安装 Node.js，也不会启动本地浏览器或本地 Express 服务。
@@ -31,13 +31,13 @@ RisingStones-PartyFinder-Desktop.exe
 备用的本地服务便携包仍可使用：
 
 ```text
-risingstones-partyfinder-helper-v0.1.11-win-x64.zip
+阿谢姆水晶（Azem's Crystal）-v1.0.0-win-x64.zip
 ```
 
 解压后双击：
 
 ```text
-RisingStones-PartyFinder.exe
+阿谢姆水晶（Azem's Crystal）.exe
 ```
 
 浏览器会打开：
@@ -48,7 +48,7 @@ http://127.0.0.1:8797
 
 这个便携包包含：
 
-- 一键启动的 `RisingStones-PartyFinder.exe`。
+- 一键启动的 `阿谢姆水晶（Azem's Crystal）.exe`。
 - 已构建好的网页前端。
 - 已打包好的本地代理服务。
 - Windows x64 Node.js 运行时。
@@ -90,7 +90,7 @@ npm run package:desktop:portable
 产物会生成在：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.11-desktop-win-x64-portable.zip
+release/阿谢姆水晶（Azem's Crystal）-v1.0.0-desktop-win-x64-portable.zip
 ```
 
 安装包构建可继续使用 `npm run desktop:build`，但首次下载 NSIS 工具包时可能受网络影响。详情见 `docs/release/desktop-tauri.md`。
@@ -159,7 +159,7 @@ npm run build:portable
 产物会生成在：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.11-win-x64.zip
+release/阿谢姆水晶（Azem's Crystal）-v1.0.0-win-x64.zip
 ```
 
 发布包构成和注意事项见：

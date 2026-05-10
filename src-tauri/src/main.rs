@@ -1220,8 +1220,7 @@ fn validate_update_asset(
     runtime: &str,
 ) -> Result<(), String> {
     let lower_name = asset_name.to_ascii_lowercase();
-    if !lower_name.ends_with(".zip") || !lower_name.starts_with("risingstones-partyfinder-helper-v")
-    {
+    if !lower_name.ends_with(".zip") || !is_project_update_asset(&lower_name) {
         return Err("只允许安装本项目 Release 中的 zip 更新包。".to_string());
     }
     if runtime == "desktop" && !lower_name.contains("desktop-win-x64-portable") {
@@ -1236,6 +1235,12 @@ fn validate_update_asset(
         return Err("更新包下载地址不在受信任的发布源内。".to_string());
     }
     Ok(())
+}
+
+fn is_project_update_asset(lower_name: &str) -> bool {
+    lower_name.contains("risingstones-partyfinder-helper")
+        || lower_name.contains("阿谢姆水晶")
+        || lower_name.contains("azem's crystal")
 }
 
 fn is_trusted_update_url(value: &str) -> bool {

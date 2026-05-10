@@ -682,7 +682,7 @@ async function assertDownloadedUpdateFile(destination: string) {
 
 function validateUpdateAsset(assetName: string, downloadUrl: string, runtime: "portable" | "desktop") {
   const lowerName = assetName.toLowerCase();
-  if (!lowerName.endsWith(".zip") || !lowerName.startsWith("risingstones-partyfinder-helper-v")) {
+  if (!lowerName.endsWith(".zip") || !isProjectUpdateAsset(lowerName)) {
     throw new Error("只允许安装本项目 Release 中的 zip 更新包。");
   }
   if (runtime === "portable" && (!lowerName.includes("-win-x64.zip") || lowerName.includes("desktop"))) {
@@ -694,6 +694,14 @@ function validateUpdateAsset(assetName: string, downloadUrl: string, runtime: "p
   if (!isTrustedUpdateUrl(downloadUrl)) {
     throw new Error("更新包下载地址不在受信任的发布源内。");
   }
+}
+
+function isProjectUpdateAsset(lowerName: string): boolean {
+  return (
+    lowerName.includes("risingstones-partyfinder-helper") ||
+    lowerName.includes("阿谢姆水晶") ||
+    lowerName.includes("azem's crystal")
+  );
 }
 
 function isTrustedUpdateUrl(value: string): boolean {

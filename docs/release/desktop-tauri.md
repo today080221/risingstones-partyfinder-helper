@@ -80,20 +80,20 @@ C:\Users\<User>\.rustup\settings.toml
 当前已通过 `npm run package:desktop:portable` 生成：
 
 ```text
-release/risingstones-partyfinder-helper-v0.1.11-desktop-win-x64-portable.zip
-release/risingstones-partyfinder-helper-v0.1.11-desktop-win-x64-portable.zip.sha256
+release/阿谢姆水晶（Azem's Crystal）-v1.0.0-desktop-win-x64-portable.zip
+release/阿谢姆水晶（Azem's Crystal）-v1.0.0-desktop-win-x64-portable.zip.sha256
 ```
 
 SHA256：
 
 ```text
-4462605C87719A610E488B19FAD92E681290802E3AA949B6726F77228111F127
+以本机构建输出为准，脚本会在 zip 旁自动生成同名 `.sha256`。
 ```
 
 zip 内主程序：
 
 ```text
-RisingStones-PartyFinder-Desktop.exe
+阿谢姆水晶（Azem's Crystal）.exe
 ```
 
 短启动验收：主程序可启动并显示窗口标题 `阿谢姆水晶 (Azem's Crystal)`。
