@@ -1828,6 +1828,14 @@ export function App() {
                 });
               }}
             />
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={filters.labelMatchMode === "any"}
+                onChange={(event) => updateFilters({ labelMatchMode: event.target.checked ? "any" : "all" })}
+              />
+              任一标签命中即可（默认全部命中）
+            </label>
           </Field>
           <div className="two-columns">
             <Field label="不能早于">

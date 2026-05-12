@@ -228,7 +228,7 @@ export function filterRecruitRows(
     if (!matchesAreaPreference(row, filters.areaPreferenceId, meta)) {
       continue;
     }
-    if (!matchesLabelFilter(row, filters.selectedLabelIds, meta)) {
+    if (!matchesLabelFilter(row, filters.selectedLabelIds, meta, filters.labelMatchMode)) {
       continue;
     }
     if (!matchesGlobalExclude(row, globalExcludeTokens)) {
@@ -271,22 +271,45 @@ function matchesAreaPreference(row: RecruitRow, areaPreferenceId: string, meta: 
   return text.includes(target);
 }
 
-function matchesLabelFilter(row: RecruitRow, selectedLabelIds: string[], meta: MetaPayload | null): boolean {
+function matchesLabelFilter(
+  row: RecruitRow,
+  selectedLabelIds: string[],
+  meta: MetaPayload | null,
+  matchMode: LocalFilterState["labelMatchMode"] = "all"
+): boolean {
   if (!selectedLabelIds.length) {
     return true;
   }
 
   const labelsById = new Map((meta?.labels ?? []).map((label) => [label.id, label.name]));
-  const selected = new Set(
-    selectedLabelIds
-      .flatMap((value) => {
-        const label = labelsById.get(value) ?? "";
-        return [value, label, normalizeTagAlias(value), label ? normalizeTagAlias(label) : ""];
-      })
-      .map((value) => value.toLowerCase())
-      .filter(Boolean)
-  );
-  const textValues = [
+  const selectedGroups = selectedLabelIds
+    .map((value) => {
+      const label = labelsById.get(value) ?? "";
+      return [
+        value,
+        label,
+        normalizeTagAlias(value),
+        label ? normalizeTagAlias(label) : ""
+      ]
+        .map((item) => item.toLowerCase())
+        .filter(Boolean);
+    })
+    .map((values) => [...new Set(values)])
+    .filter((values) => values.length > 0);
+
+  if (!selectedGroups.length) {
+    return true;
+  }
+
+  const textValues = buildRowLabelTextValues(row);
+  const matchesGroup = (group: string[]) =>
+    group.some((target) => textValues.some((value) => value === target || value.includes(target)));
+
+  return matchMode === "any" ? selectedGroups.some(matchesGroup) : selectedGroups.every(matchesGroup);
+}
+
+function buildRowLabelTextValues(row: RecruitRow): string[] {
+  return [
     ...(row.label ?? []),
     ...(row.labelInfo?.flatMap((label) => [label.id, label.name]) ?? []),
     ...(row.parseTags ?? []),
@@ -297,8 +320,6 @@ function matchesLabelFilter(row: RecruitRow, selectedLabelIds: string[], meta: M
   ]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .map((value) => value.toLowerCase());
-
-  return [...selected].some((target) => textValues.some((value) => value === target || value.includes(target)));
 }
 
 function formatRecruitKindLabel(kind: NonNullable<RecruitRow["sourceMeta"]>["recruitKind"]): string {

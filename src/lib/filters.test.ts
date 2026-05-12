@@ -376,6 +376,7 @@ describe("local recruit filtering", () => {
         areaPreferenceId: "",
         timeDays: ["6"],
         selectedLabelIds: [],
+        labelMatchMode: "all",
         selectedJobIds: ["12"],
         noDuplicateJobs: true,
         selectedPositions: ["H2"],
@@ -410,6 +411,7 @@ describe("local recruit filtering", () => {
         areaPreferenceId: "",
         timeDays: [],
         selectedLabelIds: [],
+        labelMatchMode: "all",
         selectedJobIds: [],
         noDuplicateJobs: true,
         selectedPositions: [],
@@ -423,7 +425,7 @@ describe("local recruit filtering", () => {
     expect(result.rejected).toBe(2);
   });
 
-  it("filters local labels across official labels and NGA parser tags", () => {
+  it("can match any selected local label across official labels and NGA parser tags", () => {
     const rows = [
       recruit({
         id: 1,
@@ -452,6 +454,7 @@ describe("local recruit filtering", () => {
         areaPreferenceId: "",
         timeDays: [],
         selectedLabelIds: ["求职", "社畜"],
+        labelMatchMode: "any",
         selectedJobIds: [],
         noDuplicateJobs: true,
         selectedPositions: [],
@@ -463,6 +466,41 @@ describe("local recruit filtering", () => {
 
     expect(result.rows.map((row) => row.id)).toEqual([1, 2]);
     expect(result.rejected).toBe(1);
+  });
+
+  it("requires every selected local label by default", () => {
+    const rows = [
+      recruit({ id: 1, progress: "首月过本，当前从0开荒" }),
+      recruit({ id: 2, progress: "首月过本" }),
+      recruit({ id: 3, labelInfo: [{ id: "practice", name: "开荒", weight: 1 }] })
+    ];
+
+    const result = filterRecruitRows(
+      rows,
+      {
+        ngaRecruitView: "all",
+        progressText: "",
+        strategyText: "",
+        timeText: "",
+        excludeText: "",
+        timeStart: "",
+        timeEnd: "",
+        dailyMaxHours: "",
+        areaPreferenceId: "",
+        timeDays: [],
+        selectedLabelIds: ["首月目标", "开荒"],
+        labelMatchMode: "all",
+        selectedJobIds: [],
+        noDuplicateJobs: true,
+        selectedPositions: [],
+        alliance: "",
+        showUnparsedTime: true
+      },
+      meta
+    );
+
+    expect(result.rows.map((row) => row.id)).toEqual([1]);
+    expect(result.rejected).toBe(2);
   });
 
   it("filters derived official and NGA goal tags with one label vocabulary", () => {
@@ -486,6 +524,7 @@ describe("local recruit filtering", () => {
         areaPreferenceId: "",
         timeDays: [],
         selectedLabelIds: ["首月目标"],
+        labelMatchMode: "all",
         selectedJobIds: [],
         noDuplicateJobs: true,
         selectedPositions: [],
@@ -524,6 +563,7 @@ describe("local recruit filtering", () => {
         areaPreferenceId: "1",
         timeDays: [],
         selectedLabelIds: [],
+        labelMatchMode: "all",
         selectedJobIds: [],
         noDuplicateJobs: true,
         selectedPositions: [],

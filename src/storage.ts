@@ -36,6 +36,7 @@ export const defaultFilters: LocalFilterState = {
   timeDays: [],
   areaPreferenceId: "",
   selectedLabelIds: [],
+  labelMatchMode: "all",
   selectedJobIds: [],
   noDuplicateJobs: true,
   selectedPositions: [],
@@ -103,7 +104,8 @@ export function loadUiState(): SavedUiState {
         ...defaultFilters,
         ...parsedFilters,
         areaPreferenceId: parsedFilters.areaPreferenceId ?? parsed.targetAreaId ?? "",
-        selectedLabelIds
+        selectedLabelIds,
+        labelMatchMode: parsedFilters.labelMatchMode === "any" ? "any" : "all"
       }
     };
   } catch {
