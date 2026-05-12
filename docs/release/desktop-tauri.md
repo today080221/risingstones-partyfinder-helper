@@ -80,8 +80,8 @@ C:\Users\<User>\.rustup\settings.toml
 当前已通过 `npm run package:desktop:portable` 生成：
 
 ```text
-release/阿谢姆水晶（Azem's Crystal）-v1.0.1-desktop-win-x64-portable.zip
-release/阿谢姆水晶（Azem's Crystal）-v1.0.1-desktop-win-x64-portable.zip.sha256
+release/阿谢姆水晶（Azem's Crystal）-v1.0.2-desktop-win-x64-portable.zip
+release/阿谢姆水晶（Azem's Crystal）-v1.0.2-desktop-win-x64-portable.zip.sha256
 ```
 
 SHA256：
