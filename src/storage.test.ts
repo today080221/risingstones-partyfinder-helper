@@ -39,12 +39,29 @@ describe("saved local filter migration", () => {
         labels: ["seeking"],
         filters: {
           ...defaultUiState.filters,
-          selectedLabelIds: undefined
+          selectedLabelIds: undefined,
+          labelMatchMode: undefined
         }
       })
     );
 
     expect(loadUiState().filters.selectedLabelIds).toEqual(["seeking"]);
+    expect(loadUiState().filters.labelMatchMode).toBe("all");
+  });
+
+  it("keeps the saved label any-match mode", () => {
+    localStorage.setItem(
+      "risingstones-partyfinder-helper:v1",
+      JSON.stringify({
+        ...defaultUiState,
+        filters: {
+          ...defaultUiState.filters,
+          labelMatchMode: "any"
+        }
+      })
+    );
+
+    expect(loadUiState().filters.labelMatchMode).toBe("any");
   });
 
   it("fills new NGA cache refresh settings for old saved state", () => {

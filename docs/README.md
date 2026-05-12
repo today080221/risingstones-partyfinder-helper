@@ -104,6 +104,9 @@
 - `worklog/2026-05-10-v1.0.1-release-trust.md`
   v1.0.1 Release 官方下载来源、SHA256 校验、Windows/Chrome 风险提示和后续代码签名方案记录。
 
+- `worklog/2026-05-12-label-match-mode.md`
+  标签/类型筛选默认全部匹配，并提供“任一命中”小开关的工作记录。
+
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。
 

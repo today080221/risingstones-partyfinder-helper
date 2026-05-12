@@ -408,6 +408,7 @@ export interface LocalFilterState {
   timeDays: string[];
   areaPreferenceId: string;
   selectedLabelIds: string[];
+  labelMatchMode: "all" | "any";
   selectedJobIds: string[];
   noDuplicateJobs: boolean;
   selectedPositions: string[];
