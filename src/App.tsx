@@ -1821,7 +1821,7 @@ export function App() {
                 type="button"
                 className={`mini-toggle ${filters.labelMatchMode === "any" ? "active" : ""}`}
                 aria-pressed={filters.labelMatchMode === "any"}
-                title="默认全部命中；开启后任一标签命中即可"
+                title="默认全部命中；开启后任一命中"
                 onClick={() => updateFilters({ labelMatchMode: filters.labelMatchMode === "any" ? "all" : "any" })}
               >
                 任一命中
