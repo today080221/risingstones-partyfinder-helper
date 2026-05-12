@@ -244,7 +244,8 @@ button {
   gap: 8px;
 }
 
-.field-label-row label {
+.field-label-row label,
+.field-label-row > span {
   color: #4e5d58;
   font-size: 12px;
   font-weight: 700;

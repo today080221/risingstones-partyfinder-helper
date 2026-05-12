@@ -226,7 +226,7 @@ test("tag filter preview shows four rows and expands", async ({ page }) => {
   const tagField = page.locator(".field").filter({ hasText: "标签/类型" });
   const clip = tagField.locator(".tag-filter-clip");
   const expandButton = tagField.getByRole("button", { name: /展开更多/ });
-  await expect(tagField.getByLabel("任一标签命中即可（默认全部命中）")).not.toBeChecked();
+  await expect(tagField.getByRole("button", { name: "任一命中" })).toHaveAttribute("aria-pressed", "false");
   await expect(expandButton).toBeVisible();
 
   const collapsedBox = await clip.boundingBox();

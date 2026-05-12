@@ -1814,7 +1814,20 @@ export function App() {
 
         <section className="panel">
           <SectionTitle icon={<Filter size={16} />} title="招募筛选条件" />
-          <Field label="标签/类型">
+          <Field
+            label="标签/类型"
+            actions={
+              <button
+                type="button"
+                className={`mini-toggle ${filters.labelMatchMode === "any" ? "active" : ""}`}
+                aria-pressed={filters.labelMatchMode === "any"}
+                title="默认全部命中；开启后任一标签命中即可"
+                onClick={() => updateFilters({ labelMatchMode: filters.labelMatchMode === "any" ? "all" : "any" })}
+              >
+                任一命中
+              </button>
+            }
+          >
             <ExpandableTagChipGrid
               options={orderedTagFilterOptions}
               selectedIds={filters.selectedLabelIds}
@@ -1828,14 +1841,6 @@ export function App() {
                 });
               }}
             />
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={filters.labelMatchMode === "any"}
-                onChange={(event) => updateFilters({ labelMatchMode: event.target.checked ? "any" : "all" })}
-              />
-              任一标签命中即可（默认全部命中）
-            </label>
           </Field>
           <div className="two-columns">
             <Field label="不能早于">
@@ -2254,10 +2259,17 @@ function SectionTitle({ icon, title }: { icon: ReactNode; title: string }) {
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, actions, children }: { label: string; actions?: ReactNode; children: ReactNode }) {
   return (
     <div className="field">
-      <span>{label}</span>
+      {actions ? (
+        <div className="field-label-row">
+          <span>{label}</span>
+          <div className="field-inline-actions">{actions}</div>
+        </div>
+      ) : (
+        <span>{label}</span>
+      )}
       {children}
     </div>
   );
