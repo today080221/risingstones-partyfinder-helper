@@ -148,3 +148,23 @@
 
 - Rendered Tauri-window reproduction was not performed in this phase. Browser plugin automation timed out, while Playwright web QA against the same frontend passed. If the issue reappears only in the native WebView, test the packaged Tauri window next.
 - If users still report blank areas after this fix, next step is adding `scrollSeekConfiguration` placeholders for high-velocity scroll rather than increasing rendered card work further.
+
+## Ready PR QA Pass
+
+- `git fetch origin`: completed on 2026-05-14 before marking PR ready. Branch state remained `codex/fix-virtuoso-list-rendering...origin/codex/fix-virtuoso-list-rendering`, with PR #4 open, draft, mergeable, and GitHub CI `Test and build` already successful.
+- Browser plugin path: retried against `http://127.0.0.1:5188/`, but the in-app browser connection/navigation timed out before page verification. Per frontend QA rules, fell back to regular Playwright and recorded the Browser-path blocker.
+- Playwright UI flow under test: app loads -> UI clicks set 石之家 only / 绝境战 / 妖星乱舞绝境战 / 队伍招募 / H1 / 白魔法师, with `不能早于` and `不能晚于` both blank -> click `聚合检索` -> fast wheel scroll through the long official result list.
+- Playwright QA results:
+  - Page identity: title `阿谢姆水晶 (Azem's Crystal)`, URL `http://127.0.0.1:5188/`.
+  - Filter snapshot: 石之家 `aria-pressed=true`, NGA `aria-pressed=false`, `fbType=绝境战`, `fbName=妖星乱舞绝境战`, `timeStart=""`, `timeEnd=""`, and 队伍招募 / H1 / 白魔法师 all active.
+  - Initial list: 22 rendered cards, 5 visible cards, duplicate rendered row ids 0, blank-risk flag false.
+  - Fast-scroll sample: scrollY 5,826, 17 rendered cards, 6 visible cards, duplicate rendered row ids 0, blank-risk flag false.
+  - Bottom sample: scrollY 5,826, 17 rendered cards, 6 visible cards, duplicate rendered row ids 0, blank-risk flag false.
+  - Console health: no relevant app errors or warnings. One unrelated startup update-check request returned `503` for `/api/update/check?provider=gitee`; it was recorded and excluded because it does not touch filtering, official rows, render keys, or virtual scrolling.
+  - Screenshot evidence saved under `%TEMP%\risingstones-ready-qa\ready-ui-mid-fast-scroll.png` and `%TEMP%\risingstones-ready-qa\ready-ui-bottom-fast-scroll.png`.
+- Final command QA before ready-for-review:
+  - `npm test`: passed, 8 files / 171 tests.
+  - `npm run build`: passed.
+  - `npm run validate:nga-parser`: passed curated parser gate, 233/233 curated checks. Local sample count differs from the historical baseline as expected and remains non-gating.
+  - `git diff --check`: passed.
+- No Tauri config, icon, bundle resource, or Rust command code changed, so `cargo fmt --manifest-path src-tauri/Cargo.toml --check` and `npm run desktop:build:portable` were not required for this ready-PR pass.
