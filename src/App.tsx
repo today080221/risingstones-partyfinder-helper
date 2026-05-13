@@ -48,6 +48,7 @@ import {
 import { UPDATE_PROVIDER_LABELS } from "./config";
 import { isTauriRuntime, openExternalUrl } from "./lib/external-links";
 import { filterRecruitRows, filterRecruitRowsByDataRange } from "./lib/filters";
+import { getRecruitRenderKey } from "./lib/recruit-render-key";
 import {
   FULL_PARTY_POSITIONS,
   LIGHT_PARTY_POSITIONS,
@@ -135,6 +136,7 @@ const DAY_OPTIONS = [
   ["6", "周六"],
   ["0", "周日"]
 ] as const;
+const RESULT_LIST_MIN_OVERSCAN = { top: 8, bottom: 12 } as const;
 
 const ALLIANCES: Array<["" | AllianceKey, string]> = [
   ["", "不限团队"],
@@ -2219,6 +2221,7 @@ export function App() {
           <Virtuoso<RecruitRow>
             useWindowScroll
             increaseViewportBy={{ top: 600, bottom: 900 }}
+            minOverscanItemCount={RESULT_LIST_MIN_OVERSCAN}
             data={filtered.rows}
             computeItemKey={(_, row) => getRecruitRenderKey(row)}
             itemContent={(_, row) => {
@@ -3848,13 +3851,6 @@ function enrichNgaSampleForCache(sample: NgaSample): NgaSample {
 
 function getNgaRenderKey(sample: NgaSample): string {
   return `nga-${getNgaSampleKey(sample) || sample.topicId || sample.url || sample.title}`;
-}
-
-function getRecruitRenderKey(row: RecruitRow): string {
-  if ((row.source ?? "official") === "nga") {
-    return row.uuid || `nga-${row.sourceMeta?.topicId || row.sourceUrl || row.sourceTitle || row.id}`;
-  }
-  return row.uuid || `official-${row.id}`;
 }
 
 function getLatestNgaCacheTime(samples: NgaSample[]): string {
