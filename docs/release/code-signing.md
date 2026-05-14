@@ -8,7 +8,7 @@
 
 - `v0.1.2` 已先发布未签名 Node EXE 便携包。
 - `v0.1.5` 桌面便携包改为 Tauri EXE 并加入一键更新，仍需要签名来降低 SmartScreen 提示。
-- `v1.0.2` 仍是未签名发布包；Release 页面和 README 继续保留官方下载来源、SHA256 校验和 Windows/Chrome 风险提示。
+- `v1.0.3` 仍是未签名发布包；Release 页面和 README 继续保留官方下载来源、SHA256 校验和 Windows/Chrome 风险提示。
 - 后续签名目标优先级：
   1. `阿谢姆水晶（Azem's Crystal）.exe`（Tauri 桌面便携包）
   2. `阿谢姆水晶（Azem's Crystal）.exe`（Node 备用便携包）

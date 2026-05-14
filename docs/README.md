@@ -113,6 +113,9 @@
 - `worklog/2026-05-13-duplicate-filter-root-cause.md`
   Tauri 前端实例在特定筛选条件下出现重复招募列表的根因排查记录。
 
+- `worklog/2026-05-14-v1.0.3-release.md`
+  v1.0.3 招募列表重复卡片与快速滚动空白修复版的版本同步、发布包验证和 Release 发布记录。
+
 - `../ROADMAP.md`
   后续功能路线图；当前优先项是 GitHub/Gitee 等发布源的检查更新能力。
 
